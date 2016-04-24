@@ -60,13 +60,13 @@ public final class JSDocInfoBuilder {
   private JSDocInfo currentInfo;
 
   // whether the current JSDocInfo has valuable information
-  private boolean populated = false;
+  private boolean populated;
 
   // whether to include the documentation itself when parsing the JsDoc
-  private boolean parseDocumentation = false;
+  private boolean parseDocumentation;
 
   // the current marker, if any.
-  private JSDocInfo.Marker currentMarker = null;
+  private JSDocInfo.Marker currentMarker;
 
   public JSDocInfoBuilder(boolean parseDocumentation) {
     this(new JSDocInfo(parseDocumentation), parseDocumentation, false);
@@ -272,8 +272,7 @@ public final class JSDocInfoBuilder {
           lineno, charno + name.length());
       currentMarker.setName(position);
 
-      SourcePosition<Node> nodePos =
-          new JSDocInfo.NamePosition();
+      JSDocInfo.NamePosition nodePos = new JSDocInfo.NamePosition();
       Node node = Node.newString(Token.NAME, name, lineno, charno);
       node.setLength(name.length());
       node.setStaticSourceFile(file);
@@ -374,7 +373,7 @@ public final class JSDocInfoBuilder {
    * Records a thrown type.
    */
   public boolean recordThrowType(JSTypeExpression type) {
-    if (!hasAnySingletonTypeTags()) {
+    if (type != null && !hasAnySingletonTypeTags()) {
       currentInfo.declareThrows(type);
       populated = true;
       return true;
@@ -498,6 +497,13 @@ public final class JSDocInfoBuilder {
     } else {
       return false;
     }
+  }
+
+  /**
+   * Returns whether a deprecation reason has been recorded.
+   */
+  public boolean isDeprecationReasonRecorded() {
+    return currentInfo.getDeprecationReason() != null;
   }
 
   /**
@@ -910,9 +916,9 @@ public final class JSDocInfoBuilder {
    * if it was already defined or it was incompatible with the existing flags
    */
   public boolean recordStruct() {
-    if (hasAnySingletonTypeTags() || currentInfo.isInterface() ||
-        currentInfo.makesDicts() || currentInfo.makesStructs() ||
-        currentInfo.makesUnrestricted()) {
+    if (hasAnySingletonTypeTags()
+        || currentInfo.makesDicts() || currentInfo.makesStructs()
+        || currentInfo.makesUnrestricted()) {
       return false;
     }
     currentInfo.setStruct();
@@ -932,9 +938,9 @@ public final class JSDocInfoBuilder {
    * if it was already defined or it was incompatible with the existing flags
    */
   public boolean recordDict() {
-    if (hasAnySingletonTypeTags() || currentInfo.isInterface() ||
-        currentInfo.makesDicts() || currentInfo.makesStructs() ||
-        currentInfo.makesUnrestricted()) {
+    if (hasAnySingletonTypeTags()
+        || currentInfo.makesDicts() || currentInfo.makesStructs()
+        || currentInfo.makesUnrestricted()) {
       return false;
     }
     currentInfo.setDict();
@@ -1011,7 +1017,6 @@ public final class JSDocInfoBuilder {
    */
   public boolean recordInterface() {
     if (hasAnySingletonTypeTags() ||
-        currentInfo.makesStructs() || currentInfo.makesDicts() ||
         currentInfo.isConstructor() || currentInfo.isInterface()) {
       return false;
     }
@@ -1286,13 +1291,6 @@ public final class JSDocInfoBuilder {
 
   public void mergePropertyBitfieldFrom(JSDocInfo other) {
     currentInfo.mergePropertyBitfieldFrom(other);
-  }
-
-  /**
-   * Returns whether current JSDoc is annotated with {@code @disposes}.
-   */
-  public boolean isDisposesRecorded() {
-    return currentInfo.isDisposes();
   }
 
   /**

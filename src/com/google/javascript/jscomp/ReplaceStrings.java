@@ -66,7 +66,7 @@ class ReplaceStrings extends AbstractPostOrderCallback
   //
   private final Map<String, Config> functions = new HashMap<>();
   private final Multimap<String, String> methods = HashMultimap.create();
-  private final NameGenerator nameGenerator;
+  private final DefaultNameGenerator nameGenerator;
   private final Map<String, Result> results = new LinkedHashMap<>();
 
   /**
@@ -208,8 +208,7 @@ class ReplaceStrings extends AbstractPostOrderCallback
           Node rhs = calledFn.getLastChild();
           if (rhs.isName() || rhs.isString()) {
             String methodName = rhs.getString();
-            String originalMethodName =
-                (String) rhs.getParent().getProp(Node.ORIGINALNAME_PROP);
+            String originalMethodName = rhs.getParent().getOriginalName();
             Collection<String> classes;
             if (originalMethodName != null) {
               classes = methods.get(originalMethodName);
@@ -282,7 +281,7 @@ class ReplaceStrings extends AbstractPostOrderCallback
       }
     } else {
       // Replace all parameters.
-      Node firstParam = n.getFirstChild().getNext();
+      Node firstParam = n.getSecondChild();
       for (Node arg = firstParam; arg != null; arg = arg.getNext()) {
         arg = replaceExpression(t, arg, n);
       }
@@ -487,10 +486,11 @@ class ReplaceStrings extends AbstractPostOrderCallback
    * Use a name generate to create names so the names overlap with the names
    * used for variable and properties.
    */
-  private static NameGenerator createNameGenerator(Iterable<String> reserved) {
+  private static DefaultNameGenerator createNameGenerator(
+        Iterable<String> reserved) {
     final String namePrefix = "";
     final char[] reservedChars = new char[0];
-    return new NameGenerator(
+    return new DefaultNameGenerator(
         ImmutableSet.copyOf(reserved), namePrefix, reservedChars);
   }
 }

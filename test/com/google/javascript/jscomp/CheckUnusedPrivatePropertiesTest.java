@@ -50,7 +50,7 @@ public final class CheckUnusedPrivatePropertiesTest extends CompilerTestCase {
 
   @Override
   protected void setUp() {
-    this.enableTypeCheck(CheckLevel.OFF);
+    this.enableTypeCheck();
   }
 
   private void unused(String code) {
@@ -223,6 +223,22 @@ public final class CheckUnusedPrivatePropertiesTest extends CompilerTestCase {
         "/** @private */ A.prototype._foo = 0;",
         "A.prototype.method = function() {this._foo++};",
         "new A().method()"));
+  }
+
+  public void testTypedef() {
+    used(LINE_JOINER.join(
+        "/** @constructor */ function A() {}",
+        "/** @private @typedef {string} */ A.typedef_;"));
+  }
+
+  public void testInterface() {
+    used(LINE_JOINER.join(
+        "/** @constructor */ function A() {}",
+        "/**",
+        " * @interface",
+        " * @private",
+        " */",
+        "A.Interface = function() {};"));
   }
 
   public void testConstructorProperty1() {

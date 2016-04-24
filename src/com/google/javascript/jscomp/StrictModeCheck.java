@@ -93,22 +93,17 @@ class StrictModeCheck extends AbstractPostOrderCallback
 
   static final DiagnosticType BAD_FUNCTION_DECLARATION = DiagnosticType.error(
       "JSC_BAD_FUNCTION_DECLARATION",
-      "functions can only be declared at top level or immediately within " +
-      "another function in ES5 strict mode");
+      "functions can only be declared at top level or immediately within"
+      + " another function in ES5 strict mode");
 
   private final AbstractCompiler compiler;
 
   StrictModeCheck(AbstractCompiler compiler) {
-    this(compiler, false);
-  }
-
-  StrictModeCheck(
-      AbstractCompiler compiler, boolean noVarCheck) {
     this.compiler = compiler;
   }
 
   @Override public void process(Node externs, Node root) {
-    NodeTraversal.traverseRoots(compiler, this, externs, root);
+    NodeTraversal.traverseRootsEs6(compiler, this, externs, root);
     NodeTraversal.traverseEs6(compiler, root, new NonExternChecks());
   }
 
@@ -159,7 +154,7 @@ class StrictModeCheck extends AbstractPostOrderCallback
         return true;
 
       case Token.PARAM_LIST:
-        return n.getParent().getParent().isFunction();
+        return n.getGrandparent().isFunction();
 
       default:
         return false;

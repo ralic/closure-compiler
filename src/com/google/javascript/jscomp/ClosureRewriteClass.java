@@ -58,6 +58,10 @@ class ClosureRewriteClass extends AbstractPostOrderCallback
       "JSC_GOOG_CLASS_CONSTRUCTOR_MISSING",
       "The constructor expression is missing for the class descriptor");
 
+  static final DiagnosticType GOOG_CLASS_CONSTRUCTOR_NOT_VALID = DiagnosticType.error(
+      "JSC_GOOG_CLASS_CONSTRUCTOR_NOT_VALID",
+      "The constructor expression must be a function literal");
+
   static final DiagnosticType GOOG_CLASS_CONSTRUCTOR_ON_INTERFACE = DiagnosticType.error(
       "JSC_GOOG_CLASS_CONSTRUCTOR_ON_INTERFACE",
       "Should not have a constructor expression for an interface");
@@ -257,7 +261,12 @@ class ClosureRewriteClass extends AbstractPostOrderCallback
       // report missing constructor
       compiler.report(JSError.make(description, GOOG_CLASS_CONSTRUCTOR_MISSING));
       return null;
+    } else {
+      if (!constructor.isFunction()) {
+        compiler.report(JSError.make(constructor, GOOG_CLASS_CONSTRUCTOR_NOT_VALID));
+      }
     }
+
     if (constructor == null) {
       constructor = IR.function(
           IR.name("").srcref(callNode),
@@ -456,15 +465,23 @@ class ClosureRewriteClass extends AbstractPostOrderCallback
       def.value.setJSDocInfo(null);
 
       // example: ctr.prototype.prop = value
-      block.addChildToBack(
-          fixupSrcref(IR.exprResult(
-          fixupSrcref(IR.assign(
-              IR.getprop(
-                  fixupSrcref(IR.getprop(cls.name.cloneTree(),
-                      IR.string("prototype").srcref(def.name))),
-                  IR.string(def.name.getString()).srcref(def.name))
-                  .srcref(def.name),
-              def.value)).setJSDocInfo(def.info))));
+      Node exprResult =
+          IR.exprResult(
+              IR.assign(
+                      NodeUtil.newQName(
+                          compiler,
+                          cls.name.getQualifiedName() + ".prototype." + def.name.getString()),
+                      def.value)
+                  .setJSDocInfo(def.info));
+      exprResult.useSourceInfoIfMissingFromForTree(def.name);
+      
+      // The length needs to be set explicitly to include the string key node and the function node.
+      // If we just used the length of def.name or def.value alone, then refactorings which try to
+      // delete the method would not work correctly.
+      exprResult.setLength(
+          def.value.getSourceOffset() + def.value.getLength() - def.name.getSourceOffset());
+      block.addChildToBack(exprResult);
+
       // Handle inner class definitions.
       maybeRewriteClassDefinition(block.getLastChild());
     }
@@ -478,7 +495,7 @@ class ClosureRewriteClass extends AbstractPostOrderCallback
       // The cls parameter is unused, but leave it there so that it
       // matches the JsDoc.
       // TODO(tbreisacher): Add a warning if the param is shadowed or reassigned.
-      Node argList = cls.classModifier.getFirstChild().getNext();
+      Node argList = cls.classModifier.getSecondChild();
       Node arg = argList.getFirstChild();
       final String argName = arg.getString();
       NodeTraversal.traverseEs6(compiler, cls.classModifier.getLastChild(),
@@ -596,10 +613,23 @@ class ClosureRewriteClass extends AbstractPostOrderCallback
       mergedInfo.recordNgInject(true);
     }
 
+    if (classInfo.makesUnrestricted() || ctorInfo.makesUnrestricted()) {
+      mergedInfo.recordUnrestricted();
+    } else if (classInfo.makesDicts() || ctorInfo.makesDicts()) {
+      mergedInfo.recordDict();
+    } else {
+      // @struct by default
+      mergedInfo.recordStruct();
+    }
+
     // @constructor is implied, @interface must be explicit
     boolean isInterface = classInfo.isInterface() || ctorInfo.isInterface();
     if (isInterface) {
-      mergedInfo.recordInterface();
+      if (classInfo.usesImplicitMatch() || ctorInfo.usesImplicitMatch()) {
+        mergedInfo.recordImplicitMatch();
+      } else {
+        mergedInfo.recordInterface();
+      }
       List<JSTypeExpression> extendedInterfaces = null;
       if (classInfo.getExtendedInterfacesCount() > 0) {
         extendedInterfaces = classInfo.getExtendedInterfaces();
@@ -618,15 +648,6 @@ class ClosureRewriteClass extends AbstractPostOrderCallback
     } else {
       // @constructor by default
       mergedInfo.recordConstructor();
-      if (classInfo.makesUnrestricted() || ctorInfo.makesUnrestricted()) {
-        mergedInfo.recordUnrestricted();
-      } else if (classInfo.makesDicts() || ctorInfo.makesDicts()) {
-        mergedInfo.recordDict();
-      } else {
-        // @struct by default
-        mergedInfo.recordStruct();
-      }
-
 
       if (classInfo.getBaseType() != null) {
         mergedInfo.recordBaseType(classInfo.getBaseType());

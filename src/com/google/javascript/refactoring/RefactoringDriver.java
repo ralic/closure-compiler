@@ -77,8 +77,10 @@ public final class RefactoringDriver {
     return compiler;
   }
 
+  // TODO(tbreisacher): Make this package-private by refactoring tests so they
+  // don't need to call it directly.
   @VisibleForTesting
-  static CompilerOptions getCompilerOptions() {
+  public static CompilerOptions getCompilerOptions() {
     CompilerOptions options = new CompilerOptions();
 
     DependencyOptions deps = new DependencyOptions();
@@ -90,6 +92,7 @@ public final class RefactoringDriver {
     options.setCheckSymbols(true);
     options.setCheckTypes(true);
     options.setClosurePass(true);
+    options.setGenerateExports(true);
     options.setPreserveGoogRequires(true);
 
     options.setWarningLevel(DiagnosticGroups.MISSING_REQUIRE, CheckLevel.ERROR);

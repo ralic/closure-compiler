@@ -18,6 +18,7 @@ package com.google.javascript.jscomp;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
+
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -68,8 +69,7 @@ public class ComposeWarningsGuard extends WarningsGuard {
 
       // If the warnings guards have the same priority, the one that
       // was added last wins.
-      return orderOfAddition.get(b).intValue() -
-          orderOfAddition.get(a).intValue();
+      return orderOfAddition.get(b).intValue() - orderOfAddition.get(a).intValue();
     }
   }
 
@@ -164,8 +164,8 @@ public class ComposeWarningsGuard extends WarningsGuard {
   }
 
   /**
-   * Make a warnings guard that's the same as this one but with
-   * all escalating guards turned down.
+   * Make a warnings guard that's the same as this one but demotes all
+   * errors to warnings.
    */
   ComposeWarningsGuard makeEmergencyFailSafeGuard() {
     ComposeWarningsGuard safeGuard = new ComposeWarningsGuard();
@@ -174,6 +174,17 @@ public class ComposeWarningsGuard extends WarningsGuard {
       safeGuard.addGuard(guard);
     }
     return safeGuard;
+  }
+
+  @Override
+  protected ComposeWarningsGuard makeNonStrict() {
+    ComposeWarningsGuard nonStrictGuard = new ComposeWarningsGuard();
+    for (WarningsGuard guard : guards.descendingSet()) {
+      if (!(guard instanceof StrictWarningsGuard)) {
+        nonStrictGuard.addGuard(guard.makeNonStrict());
+      }
+    }
+    return nonStrictGuard;
   }
 
   @Override

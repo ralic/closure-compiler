@@ -16,6 +16,8 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.base.Strings.nullToEmpty;
+
 import com.google.common.base.Preconditions;
 import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.Node;
@@ -302,7 +304,7 @@ public class NodeTraversal {
   void traverseRoots(Node externs, Node root) {
     try {
       Node scopeRoot = externs.getParent();
-      Preconditions.checkState(scopeRoot != null);
+      Preconditions.checkNotNull(scopeRoot);
 
       inputId = NodeUtil.getInputId(scopeRoot);
       sourceName = "";
@@ -372,7 +374,7 @@ public class NodeTraversal {
       curNode = n;
       pushScope(s);
 
-      Node args = n.getFirstChild().getNext();
+      Node args = n.getSecondChild();
       Node body = args.getNext();
       traverseBranch(args, n);
       traverseBranch(body, n);
@@ -545,7 +547,9 @@ public class NodeTraversal {
 
   /**
    * Traverses a node recursively.
+   * @deprecated Use traverseEs6 whenever possible.
    */
+  @Deprecated
   public static void traverse(AbstractCompiler compiler, Node root, Callback cb) {
     NodeTraversal t = new NodeTraversal(compiler, cb);
     t.traverse(root);
@@ -565,13 +569,21 @@ public class NodeTraversal {
     t.traverse(root);
   }
 
+  @Deprecated
   public static void traverseRoots(
       AbstractCompiler compiler, Callback cb, Node externs, Node root) {
     NodeTraversal t = new NodeTraversal(compiler, cb);
     t.traverseRoots(externs, root);
   }
 
-  static void traverseRootsTyped(AbstractCompiler compiler, Callback cb, Node externs, Node root) {
+  public static void traverseRootsEs6(
+      AbstractCompiler compiler, Callback cb, Node externs, Node root) {
+    NodeTraversal t = new NodeTraversal(compiler, cb, new Es6SyntacticScopeCreator(compiler));
+    t.traverseRoots(externs, root);
+  }
+
+  public static void traverseRootsTyped(
+      AbstractCompiler compiler, Callback cb, Node externs, Node root) {
     NodeTraversal t = new NodeTraversal(compiler, cb, SyntacticScopeCreator.makeTyped(compiler));
     t.traverseRoots(externs, root);
   }
@@ -593,6 +605,8 @@ public class NodeTraversal {
 
     if (type == Token.FUNCTION) {
       traverseFunction(n, parent);
+    } else if (type == Token.CLASS) {
+      traverseClass(n, parent);
     } else if (useBlockScope && NodeUtil.createsBlockScope(n)) {
       traverseBlockScope(n);
     } else {
@@ -611,15 +625,12 @@ public class NodeTraversal {
 
   /** Traverses a function. */
   private void traverseFunction(Node n, Node parent) {
-    Preconditions.checkState(n.getChildCount() == 3);
-    Preconditions.checkState(n.isFunction());
-
     final Node fnName = n.getFirstChild();
     boolean isFunctionExpression = (parent != null)
         && NodeUtil.isFunctionExpression(n);
 
     if (!isFunctionExpression) {
-      // Functions declarations are in the scope containing the declaration.
+      // Function declarations are in the scope containing the declaration.
       traverseBranch(fnName, n);
     }
 
@@ -640,6 +651,37 @@ public class NodeTraversal {
 
     // Body
     // ES6 "arrow" function may not have a block as a body.
+    traverseBranch(body, n);
+
+    popScope();
+  }
+
+  /** Traverses a class. */
+  private void traverseClass(Node n, Node parent) {
+    final Node className = n.getFirstChild();
+    boolean isClassExpression = NodeUtil.isClassExpression(n);
+
+    if (!isClassExpression) {
+      // Class declarations are in the scope containing the declaration.
+      traverseBranch(className, n);
+    }
+
+    curNode = n;
+    pushScope(n);
+
+    if (isClassExpression) {
+      // Class expression names are only accessible within the function
+      // scope.
+      traverseBranch(className, n);
+    }
+
+    final Node extendsClause = className.getNext();
+    final Node body = extendsClause.getNext();
+
+    // Extends
+    traverseBranch(extendsClause, n);
+
+    // Body
     traverseBranch(body, n);
 
     popScope();
@@ -786,14 +828,14 @@ public class NodeTraversal {
    * Determines whether the traversal is currently in the global scope. Note that this returns false
    * in a global block scope.
    */
-  boolean inGlobalScope() {
+  public boolean inGlobalScope() {
     return getScopeDepth() == 0;
   }
 
   /**
    * Determines whether the hoist scope of the current traversal is global.
    */
-  boolean inGlobalHoistScope() {
+  public boolean inGlobalHoistScope() {
     return !getCfgRoot().isFunction();
   }
 
@@ -816,7 +858,7 @@ public class NodeTraversal {
 
   private static String getSourceName(Node n) {
     String name = n.getSourceFileName();
-    return name == null ? "" : name;
+    return nullToEmpty(name);
   }
 
   InputId getInputId() {

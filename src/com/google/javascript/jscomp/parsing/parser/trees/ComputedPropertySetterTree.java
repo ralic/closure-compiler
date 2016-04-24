@@ -25,6 +25,9 @@ import javax.annotation.Nullable;
 public class ComputedPropertySetterTree extends ParseTree {
   public final ParseTree property;
   public final IdentifierToken parameter;
+  public final boolean isStatic;
+  @Nullable public final TokenType access;
+  @Nullable public final ParseTree type;
   public final BlockTree body;
 
   public ComputedPropertySetterTree(
@@ -33,11 +36,15 @@ public class ComputedPropertySetterTree extends ParseTree {
       boolean isStatic,
       @Nullable TokenType access,
       IdentifierToken parameter,
+      @Nullable ParseTree type,
       BlockTree body) {
     super(ParseTreeType.COMPUTED_PROPERTY_SETTER, location);
 
     this.property = property;
+    this.isStatic = isStatic;
+    this.access = access;
     this.parameter = parameter;
+    this.type = type;
     this.body = body;
   }
 }

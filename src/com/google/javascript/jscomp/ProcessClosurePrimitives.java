@@ -160,13 +160,14 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
 
   private final Set<String> knownClosureSubclasses = new HashSet<>();
 
-  private final List<UnrecognizedRequire> unrecognizedRequires =
-       new ArrayList<>();
+  private final List<UnrecognizedRequire> unrecognizedRequires = new ArrayList<>();
   private final Set<String> exportedVariables = new HashSet<>();
   private final CheckLevel requiresLevel;
   private final PreprocessorSymbolTable preprocessorSymbolTable;
   private final List<Node> defineCalls = new ArrayList<>();
   private final boolean preserveGoogRequires;
+
+  private final List<Node> requiresToBeRemoved = new ArrayList<>();
 
   ProcessClosurePrimitives(AbstractCompiler compiler,
       @Nullable PreprocessorSymbolTable preprocessorSymbolTable,
@@ -214,6 +215,11 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
             r.requireNode, requiresLevel, error, r.namespace));
       }
     }
+
+    for (Node closureRequire : requiresToBeRemoved) {
+      closureRequire.detachFromParent();
+      compiler.reportCodeChange();
+    }
   }
 
   /**
@@ -222,7 +228,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
   private void replaceGoogDefines(Node n) {
     Node parent = n.getParent();
     Preconditions.checkState(parent.isExprResult());
-    String name = n.getChildAtIndex(1).getString();
+    String name = n.getSecondChild().getString();
     Node value = n.getChildAtIndex(2).detachFromParent();
 
     Node replacement = NodeUtil.newQNameDeclaration(
@@ -267,7 +273,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
               }
             } else if ("inherits".equals(methodName)) {
               // Note: inherits is allowed in local scope
-              processInheritsCall(t, n);
+              processInheritsCall(n);
             } else if ("exportSymbol".equals(methodName)) {
               // Note: exportSymbol is allowed in local scope
               Node arg = left.getNext();
@@ -423,8 +429,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
       // allow broken requires to be preserved by the first run to
       // let them be caught in the subsequent run.
       if (!preserveGoogRequires && (provided != null || requiresLevel.isOn())) {
-        parent.detachFromParent();
-        compiler.reportCodeChange();
+        requiresToBeRemoved.add(parent);
       }
     }
   }
@@ -620,7 +625,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
 
       // We're good to go.
       Node className =
-          enclosingFnNameNode.getFirstChild().getFirstChild();
+          enclosingFnNameNode.getFirstFirstChild();
       n.replaceChild(
           callee,
           NodeUtil.newQName(
@@ -759,7 +764,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
       }
 
       boolean misuseOfBase = !enclosingFnNameNode.
-          getFirstChild().getFirstChild().matchesQualifiedName(baseContainer);
+          getFirstFirstChild().matchesQualifiedName(baseContainer);
       if (misuseOfBase) {
         // Report misuse of "base" methods from other known classes.
         reportBadBaseMethodUse(t, n, baseContainer, "Must be used within "
@@ -795,7 +800,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
 
       // We're good to go.
       Node className =
-          enclosingFnNameNode.getFirstChild().getFirstChild();
+          enclosingFnNameNode.getFirstFirstChild();
       n.replaceChild(
           callee,
           NodeUtil.newQName(
@@ -811,9 +816,9 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
   /**
    * Processes the goog.inherits call.
    */
-  private void processInheritsCall(NodeTraversal t, Node n) {
+  private void processInheritsCall(Node n) {
     if (n.getChildCount() == 3) {
-      Node subClass = n.getChildAtIndex(1);
+      Node subClass = n.getSecondChild();
       Node superClass = subClass.getNext();
       if (subClass.isUnscopedQualifiedName() &&
           superClass.isUnscopedQualifiedName()) {
@@ -828,7 +833,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
    */
   private static Node getEnclosingDeclNameNode(Node n) {
     Node fn = NodeUtil.getEnclosingFunction(n);
-    return fn == null ? null : NodeUtil.getFunctionNameNode(fn);
+    return fn == null ? null : NodeUtil.getNameNode(fn);
   }
 
   /** Verify if goog.base call is used in a class */
@@ -1063,7 +1068,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
     // as we migrate users to explicit goog.forwardDeclare() calls.
     if (typeDecls != null) {
       for (String typeDecl : typeDecls) {
-        compiler.getTypeRegistry().forwardDeclareType(typeDecl);
+        compiler.forwardDeclareType(typeDecl);
       }
     }
 
@@ -1093,8 +1098,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
     }
 
     if (typeDeclaration != null) {
-      compiler.getTypeRegistry().forwardDeclareType(typeDeclaration);
-
+      compiler.forwardDeclareType(typeDeclaration);
       // Forward declaration was recorded and we can remove the call.
       parent.detachFromParent();
       compiler.reportCodeChange();
@@ -1357,7 +1361,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
             varNode.copyInformationFrom(candidateDefinition);
             candidateDefinition.getParent().replaceChild(
                 candidateDefinition, varNode);
-            nameNode.setJSDocInfo(assignNode.getJSDocInfo());
+            varNode.setJSDocInfo(assignNode.getJSDocInfo());
             compiler.reportCodeChange();
             replacementNode = varNode;
           }
@@ -1415,12 +1419,11 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
       Node decl = IR.var(name);
       decl.putBooleanProp(Node.IS_NAMESPACE, true);
 
-      // TODO(nicksantos): ew ew ew. Create a mutator package.
       if (compiler.getCodingConvention().isConstant(namespace)) {
         name.putBooleanProp(Node.IS_CONSTANT_NAME, true);
       }
       if (candidateDefinition == null) {
-        name.setJSDocInfo(NodeUtil.createConstantJsDoc());
+        decl.setJSDocInfo(NodeUtil.createConstantJsDoc());
       }
 
       Preconditions.checkState(isNamespacePlaceholder(decl));

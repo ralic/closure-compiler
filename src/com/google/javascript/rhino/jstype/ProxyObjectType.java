@@ -39,6 +39,7 @@
 
 package com.google.javascript.rhino.jstype;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.rhino.ErrorReporter;
 import com.google.javascript.rhino.JSDocInfo;
@@ -66,7 +67,7 @@ public class ProxyObjectType extends ObjectType {
   ProxyObjectType(JSTypeRegistry registry, JSType referencedType,
                   TemplateTypeMap templateTypeMap) {
     super(registry, templateTypeMap);
-    setReferencedType(referencedType);
+    setReferencedType(Preconditions.checkNotNull(referencedType));
   }
 
   @Override
@@ -122,6 +123,11 @@ public class ProxyObjectType extends ObjectType {
   @Override
   public boolean canBeCalled() {
     return referencedType.canBeCalled();
+  }
+
+  @Override
+  public boolean isStructuralType() {
+    return referencedType.isStructuralType();
   }
 
   @Override
@@ -270,11 +276,9 @@ public class ProxyObjectType extends ObjectType {
   }
 
   @Override
-  boolean defineProperty(String propertyName, JSType type,
-      boolean inferred, Node propertyNode) {
-    return referencedObjType == null ? true :
-        referencedObjType.defineProperty(
-            propertyName, type, inferred, propertyNode);
+  boolean defineProperty(String propertyName, JSType type, boolean inferred, Node propertyNode) {
+    return referencedObjType == null
+        || referencedObjType.defineProperty(propertyName, type, inferred, propertyNode);
   }
 
   @Override

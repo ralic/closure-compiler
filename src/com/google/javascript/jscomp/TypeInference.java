@@ -56,8 +56,8 @@ import com.google.javascript.rhino.jstype.UnionType;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -127,7 +127,7 @@ class TypeInference
    */
   private void inferArguments(TypedScope functionScope) {
     Node functionNode = functionScope.getRootNode();
-    Node astParameters = functionNode.getFirstChild().getNext();
+    Node astParameters = functionNode.getSecondChild();
     Node iifeArgumentNode = null;
 
     if (NodeUtil.isCallOrNewTarget(functionNode)) {
@@ -228,7 +228,7 @@ class TypeInference
               JSType iterKeyType = getNativeType(STRING_TYPE);
               ObjectType objType = getJSType(obj).dereference();
               JSType objIndexType = objType == null ?
-                  null : objType.getTemplateTypeMap().getTemplateType(
+                  null : objType.getTemplateTypeMap().getResolvedTemplateType(
                       registry.getObjectIndexKey());
               if (objIndexType != null && !objIndexType.isUnknownType()) {
                 JSType narrowedKeyType =
@@ -641,7 +641,7 @@ class TypeInference
         //    where Foo.prototype is a struct and the assignment happens at the
         //    top level and the constructor Foo is defined in the same file.
         boolean staticPropCreation = false;
-        Node maybeAssignStm = getprop.getParent().getParent();
+        Node maybeAssignStm = getprop.getGrandparent();
         if (syntacticScope.isGlobal() &&
             NodeUtil.isPrototypePropertyDeclaration(maybeAssignStm)) {
           String propCreationFilename = maybeAssignStm.getSourceFileName();
@@ -1163,7 +1163,7 @@ class TypeInference
     if (call.hasMoreThanOneChild()) {
       maybeResolveTemplateTypeFromNodes(
           fnType.getParameters(),
-          call.getChildAtIndex(1).siblings(),
+          call.getSecondChild().siblings(),
           resolvedTypes,
           seenTypes);
     }
@@ -1222,13 +1222,14 @@ class TypeInference
         seenTypes.remove(paramType);
       }
     } else if (paramType.isTemplatizedType()) {
-      // @param {Array.<T>}
+      // @param {Array<T>}
       ObjectType referencedParamType = paramType
           .toMaybeTemplatizedType()
           .getReferencedType();
       JSType argObjectType = argType
           .restrictByNotNullOrUndefined()
           .collapseUnion();
+
 
       if (argObjectType.isSubtype(referencedParamType)) {
         // If the argument type is a subtype of the parameter type, resolve any
@@ -1237,8 +1238,8 @@ class TypeInference
         TemplateTypeMap argTypeMap = argObjectType.getTemplateTypeMap();
         for (TemplateType key : paramTypeMap.getTemplateKeys()) {
           maybeResolveTemplatedType(
-              paramTypeMap.getTemplateType(key),
-              argTypeMap.getTemplateType(key),
+              paramTypeMap.getResolvedTemplateType(key),
+              argTypeMap.getResolvedTemplateType(key),
               resolvedTypes, seenTypes);
         }
       }
@@ -1316,7 +1317,7 @@ class TypeInference
    */
   private Map<String, JSType> buildTypeVariables(
       Map<TemplateType, JSType> inferredTypes) {
-    Map<String, JSType> typeVars = new HashMap<>();
+    Map<String, JSType> typeVars = new LinkedHashMap<>();
     for (Entry<TemplateType, JSType> e : inferredTypes.entrySet()) {
       // Only add the template type that do not have a type transformation
       if (!e.getKey().isTypeTransformation()) {
@@ -1344,7 +1345,7 @@ class TypeInference
         if (ttlObj == null) {
           ttlObj = new TypeTransformation(compiler, syntacticScope);
           typeVars = buildTypeVariables(inferredTypes);
-          result = new HashMap<>();
+          result = new LinkedHashMap<>();
         }
         // Evaluate the type transformation expression using the current
         // known types for the template type variables
@@ -1372,8 +1373,7 @@ class TypeInference
     }
 
     // Try to infer the template types
-    Map<TemplateType, JSType> rawInferrence = inferTemplateTypesFromParameters(
-        fnType, n);
+    Map<TemplateType, JSType> rawInferrence = inferTemplateTypesFromParameters(fnType, n);
     Map<TemplateType, JSType> inferred = Maps.newIdentityHashMap();
     for (TemplateType key : keys) {
       JSType type = rawInferrence.get(key);
@@ -1460,7 +1460,7 @@ class TypeInference
     JSType type = getJSType(n.getFirstChild()).restrictByNotNullOrUndefined();
     TemplateTypeMap typeMap = type.getTemplateTypeMap();
     if (typeMap.hasTemplateType(registry.getObjectElementKey())) {
-      n.setJSType(typeMap.getConcreteTypeOfTemplateType(registry.getObjectElementKey()));
+      n.setJSType(typeMap.getResolvedTemplateType(registry.getObjectElementKey()));
     }
     return dereferencePointer(n.getFirstChild(), scope);
   }

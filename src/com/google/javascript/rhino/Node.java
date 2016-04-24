@@ -63,10 +63,11 @@ public class Node implements Serializable {
   private static final long serialVersionUID = 1L;
 
   public static final int
-      JSDOC_INFO_PROP   = 29,     // contains a TokenStream.JSDocInfo object
+      JSDOC_INFO_PROP   = 29,     // contains a JSDocInfo object
+
       VAR_ARGS_NAME     = 30,     // the name node is a variable length
                                   // argument placeholder.
-      INCRDECR_PROP      = 32,    // pre or post type of increment/decrement
+      INCRDECR_PROP      = 32,    // whether incrdecr is pre (false) or post (true)
       QUOTED_PROP        = 36,    // set to indicate a quoted object lit key
       OPT_ARG_NAME       = 37,    // The name node is an optional argument.
       SYNTHETIC_BLOCK_PROP = 38,  // A synthetic block. Used to make
@@ -108,7 +109,6 @@ public class Node implements Serializable {
       GENERATOR_MARKER   = 65,    // Used by the ES6-to-ES3 translator.
       GENERATOR_SAFE     = 66,    // Used by the ES6-to-ES3 translator.
 
-      COOKED_STRING      = 70,    // Used to support ES6 tagged template literal.
       RAW_STRING_VALUE   = 71,    // Used to support ES6 tagged template literal.
       COMPUTED_PROP_METHOD = 72,  // A computed property that has the method
                                   // syntax ( [prop]() {...} ) rather than the
@@ -137,16 +137,20 @@ public class Node implements Serializable {
       GENERIC_TYPE_LIST = 81,     // Generic type list in ES6 typed syntax.
       IMPLEMENTS = 82,            // "implements" clause in ES6 typed syntax.
       CONSTRUCT_SIGNATURE = 83,   // This node is a TypeScript ConstructSignature
-      ACCESS_MODIFIER = 84;       // TypeScript accessibility modifiers (public, protected, private)
-
-  public static final int   // flags for INCRDECR_PROP
-      DECR_FLAG = 0x1,
-      POST_FLAG = 0x2;
+      ACCESS_MODIFIER = 84,       // TypeScript accessibility modifiers (public, protected, private)
+      NON_INDEXABLE = 85,         // Indicates the node should not be indexed by analysis tools.
+      PARSE_RESULTS = 86,         // Parse results stored on SCRIPT nodes to allow replaying
+                                  // parse warnings/errors when cloning cached ASTs.
+      GOOG_MODULE = 87,           // Indicates that a SCRIPT node is a goog.module. Remains set
+                                  // after the goog.module is desugared.
+      GOOG_MODULE_REQUIRE = 88,   // Node is a goog.require() as desugared by goog.module()
+      FEATURE_SET = 89,           // Attaches a FeatureSet to SCRIPT nodes.
+      IS_MODULE_NAME = 90;        // Indicates that a STRING node represents a namespace from
+                                  // goog.module() or goog.require() call.
 
   private static final String propToString(int propType) {
       switch (propType) {
         case VAR_ARGS_NAME:      return "var_args_name";
-
         case JSDOC_INFO_PROP:    return "jsdoc_info";
 
         case INCRDECR_PROP:      return "incrdecr";
@@ -179,7 +183,6 @@ public class Node implements Serializable {
         case IS_CONSTANT_VAR:    return "is_constant_var";
         case GENERATOR_MARKER:   return "is_generator_marker";
         case GENERATOR_SAFE:     return "is_generator_safe";
-        case COOKED_STRING:      return "cooked_string";
         case RAW_STRING_VALUE:   return "raw_string_value";
         case COMPUTED_PROP_METHOD: return "computed_prop_method";
         case COMPUTED_PROP_GETTER: return "computed_prop_getter";
@@ -194,6 +197,12 @@ public class Node implements Serializable {
         case IMPLEMENTS:       return "implements";
         case CONSTRUCT_SIGNATURE: return "construct_signature";
         case ACCESS_MODIFIER: return "access_modifier";
+        case NON_INDEXABLE:      return "non_indexable";
+        case PARSE_RESULTS:      return "parse_results";
+        case GOOG_MODULE:        return "goog_module";
+        case GOOG_MODULE_REQUIRE: return "goog_module_require";
+        case FEATURE_SET:        return "feature_set";
+        case IS_MODULE_NAME:     return "is_module_name";
         default:
           throw new IllegalStateException("unexpected prop id " + propType);
       }
@@ -238,8 +247,8 @@ public class Node implements Serializable {
     }
 
     @Override
-    public TypeDeclarationNode cloneNode() {
-      return copyNodeFields(new TypeDeclarationNode(type, str));
+    public TypeDeclarationNode cloneNode(boolean cloneTypeExprs) {
+      return copyNodeFields(new TypeDeclarationNode(type, str), cloneTypeExprs);
     }
   }
 
@@ -285,8 +294,8 @@ public class Node implements Serializable {
     private double number;
 
     @Override
-    public NumberNode cloneNode() {
-      return copyNodeFields(new NumberNode(number));
+    public NumberNode cloneNode(boolean cloneTypeExprs) {
+      return copyNodeFields(new NumberNode(number), cloneTypeExprs);
     }
   }
 
@@ -360,8 +369,8 @@ public class Node implements Serializable {
     private String str;
 
     @Override
-    public StringNode cloneNode() {
-      return copyNodeFields(new StringNode(type, str));
+    public StringNode cloneNode(boolean cloneTypeExprs) {
+      return copyNodeFields(new StringNode(type, str), cloneTypeExprs);
     }
   }
 
@@ -525,7 +534,7 @@ public class Node implements Serializable {
     sourcePosition = -1;
   }
 
-  public Node(int nodeType, Node left, Node mid, Node mid2, Node right) {
+  Node(int nodeType, Node left, Node mid, Node mid2, Node right) {
     Preconditions.checkArgument(left.parent == null);
     Preconditions.checkArgument(left.next == null);
     Preconditions.checkArgument(mid.parent == null);
@@ -558,54 +567,6 @@ public class Node implements Serializable {
   public Node(int nodeType, Node child, int lineno, int charno) {
     this(nodeType, child);
     sourcePosition = mergeLineCharNo(lineno, charno);
-  }
-
-  public Node(int nodeType, Node left, Node right, int lineno, int charno) {
-    this(nodeType, left, right);
-    sourcePosition = mergeLineCharNo(lineno, charno);
-  }
-
-  public Node(int nodeType, Node left, Node mid, Node right,
-      int lineno, int charno) {
-    this(nodeType, left, mid, right);
-    sourcePosition = mergeLineCharNo(lineno, charno);
-  }
-
-  public Node(int nodeType, Node left, Node mid, Node mid2, Node right,
-      int lineno, int charno) {
-    this(nodeType, left, mid, mid2, right);
-    sourcePosition = mergeLineCharNo(lineno, charno);
-  }
-
-  public Node(int nodeType, Node[] children, int lineno, int charno) {
-    this(nodeType, children);
-    sourcePosition = mergeLineCharNo(lineno, charno);
-  }
-
-  public Node(int nodeType, Node[] children) {
-    this.type = nodeType;
-    parent = null;
-    if (children.length != 0) {
-      this.first = children[0];
-      this.last = children[children.length - 1];
-
-      for (int i = 1; i < children.length; i++) {
-        if (null != children[i - 1].next) {
-          // fail early on loops. implies same node in array twice
-          throw new IllegalArgumentException("duplicate child");
-        }
-        children[i - 1].next = children[i];
-        Preconditions.checkArgument(children[i - 1].parent == null);
-        children[i - 1].parent = this;
-      }
-      Preconditions.checkArgument(children[children.length - 1].parent == null);
-      children[children.length - 1].parent = this;
-
-      if (null != this.last.next) {
-        // fail early on loops. implies same node in array twice
-        throw new IllegalArgumentException("duplicate child");
-      }
-    }
   }
 
   public static Node newNumber(double number) {
@@ -646,6 +607,14 @@ public class Node implements Serializable {
 
   public Node getFirstChild() {
     return first;
+  }
+
+  public Node getFirstFirstChild() {
+    return first == null ? null : first.first;
+  }
+
+  public Node getSecondChild() {
+    return first.next;
   }
 
   public Node getLastChild() {
@@ -1027,7 +996,7 @@ public class Node implements Serializable {
 
   /** Can only be called when <tt>getType() == TokenStream.NUMBER</tt> */
   public double getDouble() throws UnsupportedOperationException {
-    if (this.getType() == Token.NUMBER) {
+    if (this.type == Token.NUMBER) {
       throw new IllegalStateException(
           "Number node not created with Node.newNumber");
     } else {
@@ -1040,7 +1009,7 @@ public class Node implements Serializable {
    * @param value value to set.
    */
   public void setDouble(double value) throws UnsupportedOperationException {
-    if (this.getType() == Token.NUMBER) {
+    if (this.type == Token.NUMBER) {
       throw new IllegalStateException(
           "Number node not created with Node.newNumber");
     } else {
@@ -1050,7 +1019,7 @@ public class Node implements Serializable {
 
   /** Can only be called when node has String context. */
   public String getString() throws UnsupportedOperationException {
-    if (this.getType() == Token.STRING) {
+    if (this.type == Token.STRING) {
       throw new IllegalStateException(
           "String node not created with Node.newString");
     } else {
@@ -1063,7 +1032,7 @@ public class Node implements Serializable {
    * @param value the value to set.
    */
   public void setString(String value) throws UnsupportedOperationException {
-    if (this.getType() == Token.STRING || this.getType() == Token.NAME) {
+    if (this.type == Token.STRING || this.type == Token.NAME) {
       throw new IllegalStateException(
           "String node not created with Node.newString");
     } else {
@@ -1099,7 +1068,7 @@ public class Node implements Serializable {
       // In the case of JsDoc trees, the first child is often not a string
       // which causes exceptions to be thrown when calling toString or
       // toStringTree.
-      if (first == null || first.getType() != Token.NAME) {
+      if (first == null || first.type != Token.NAME) {
         sb.append("<invalid>");
       } else {
         sb.append(first.getString());
@@ -1124,24 +1093,16 @@ public class Node implements Serializable {
         sb.append(" [");
         sb.append(propToString(type));
         sb.append(": ");
-        String value;
-        switch (type) {
-          default:
-            value = x.toString();
-            break;
-        }
-        sb.append(value);
+        sb.append(x);
         sb.append(']');
       }
     }
 
-    if (printType) {
-      if (typei != null) {
-        String typeString = typei.toString();
-        if (typeString != null) {
-          sb.append(" : ");
-          sb.append(typeString);
-        }
+    if (printType && typei != null) {
+      String typeString = typei.toString();
+      if (typeString != null) {
+        sb.append(" : ");
+        sb.append(typeString);
       }
     }
   }
@@ -1226,7 +1187,7 @@ public class Node implements Serializable {
 
   private TypeI typei;
 
-  private Node parent;
+  protected Node parent;
 
   //==========================================================================
   // Source position management
@@ -1262,6 +1223,26 @@ public class Node implements Serializable {
    */
   public InputId getInputId() {
     return ((InputId) this.getProp(INPUT_ID));
+  }
+
+  /** The original name of this node, if the node has been renamed. */
+  public String getOriginalName() {
+    return (String) this.getProp(ORIGINALNAME_PROP);
+  }
+
+  public void setOriginalName(String originalName) {
+    this.putProp(ORIGINALNAME_PROP, originalName);
+  }
+
+  /**
+   * Whether this node should be indexed by static analysis / code indexing tools.
+   */
+  public boolean isIndexable() {
+    return !this.getBooleanProp(NON_INDEXABLE);
+  }
+
+  public void makeNonIndexable() {
+    this.putBooleanProp(NON_INDEXABLE, true);
   }
 
   public boolean isFromExterns() {
@@ -1468,6 +1449,10 @@ public class Node implements Serializable {
     return parent;
   }
 
+  public Node getGrandparent() {
+    return parent == null ? null : parent.parent;
+  }
+
   /**
    * Gets the ancestor node relative to this.
    *
@@ -1611,7 +1596,7 @@ public class Node implements Serializable {
 
           return "Node tree inequality:" +
               "\nTree:\n" + toStringTree() +
-              "\n\nJSDoc differs on subtree: " + diff.nodeActual +
+              "\n\nJSDoc differs on subtree: " + diff.nodeExpected +
               "\nExpected JSDoc: " + jsDocExpected +
               "\nActual JSDoc  : " + jsDocActual;
         }
@@ -1684,7 +1669,7 @@ public class Node implements Serializable {
    */
   boolean isEquivalentTo(
       Node node, boolean compareType, boolean recurse, boolean jsDoc) {
-    if (type != node.getType()
+    if (type != node.type
         || getChildCount() != node.getChildCount()
         || this.getClass() != node.getClass()) {
       return false;
@@ -1758,7 +1743,7 @@ public class Node implements Serializable {
    *         of the name and properties.
    */
   public String getQualifiedName() {
-    if (type == Token.NAME) {
+    if (type == Token.NAME || getBooleanProp(IS_MODULE_NAME)) {
       String name = getString();
       return name.isEmpty() ? null : name;
     } else if (type == Token.GETPROP) {
@@ -1810,6 +1795,7 @@ public class Node implements Serializable {
 
     switch (getType()) {
       case Token.NAME:
+      case Token.MEMBER_FUNCTION_DEF:
         String name = getString();
         return start == 0 && !name.isEmpty() &&
            name.length() == endIndex && qname.startsWith(name);
@@ -1840,7 +1826,6 @@ public class Node implements Serializable {
       case Token.NAME:
         return !getString().isEmpty() && getString().equals(n.getString());
       case Token.THIS:
-        return true;
       case Token.SUPER:
         return true;
       case Token.GETPROP:
@@ -1959,13 +1944,28 @@ public class Node implements Serializable {
    * @return A detached clone of the Node, specifically excluding its children.
    */
   public Node cloneNode() {
-    return copyNodeFields(new Node(type));
+    return cloneNode(false);
   }
 
-  <T extends Node> T copyNodeFields(T dst) {
+  /**
+   * @return A detached clone of the Node, specifically excluding its children.
+   */
+  protected Node cloneNode(boolean cloneTypeExprs) {
+    return copyNodeFields(new Node(type), cloneTypeExprs);
+  }
+
+  <T extends Node> T copyNodeFields(T dst, boolean cloneTypeExprs) {
     dst.setSourceEncodedPosition(this.sourcePosition);
     dst.setTypeI(this.typei);
     dst.setPropListHead(this.propListHead);
+
+    // TODO(johnlenz): Remove this once JSTypeExpression are immutable
+    if (cloneTypeExprs) {
+      JSDocInfo info = this.getJSDocInfo();
+      if (info != null) {
+        this.setJSDocInfo(info.clone(true));
+      }
+    }
     return dst;
   }
 
@@ -1973,9 +1973,13 @@ public class Node implements Serializable {
    * @return A detached clone of the Node and all its children.
    */
   public Node cloneTree() {
-    Node result = cloneNode();
+    return cloneTree(false);
+  }
+
+  public Node cloneTree(boolean cloneTypeExprs) {
+    Node result = cloneNode(cloneTypeExprs);
     for (Node n2 = getFirstChild(); n2 != null; n2 = n2.getNext()) {
-      Node n2clone = n2.cloneTree();
+      Node n2clone = n2.cloneTree(cloneTypeExprs);
       n2clone.parent = result;
       if (result.last != null) {
         result.last.next = n2clone;
@@ -2000,8 +2004,8 @@ public class Node implements Serializable {
       putProp(ORIGINALNAME_PROP, other.getProp(ORIGINALNAME_PROP));
     }
 
-    if (getProp(STATIC_SOURCE_FILE) == null) {
-      putProp(STATIC_SOURCE_FILE, other.getProp(STATIC_SOURCE_FILE));
+    if (getStaticSourceFile() == null) {
+      setStaticSourceFile(other.getStaticSourceFile());
       sourcePosition = other.sourcePosition;
     }
 
@@ -2030,7 +2034,7 @@ public class Node implements Serializable {
    */
   public Node useSourceInfoFrom(Node other) {
     putProp(ORIGINALNAME_PROP, other.getProp(ORIGINALNAME_PROP));
-    putProp(STATIC_SOURCE_FILE, other.getProp(STATIC_SOURCE_FILE));
+    setStaticSourceFile(other.getStaticSourceFile());
     sourcePosition = other.sourcePosition;
     setLength(other.getLength());
     return this;
@@ -2067,8 +2071,8 @@ public class Node implements Serializable {
       putProp(ORIGINALNAME_PROP, other.getProp(ORIGINALNAME_PROP));
     }
 
-    if (getProp(STATIC_SOURCE_FILE) == null) {
-      putProp(STATIC_SOURCE_FILE, other.getProp(STATIC_SOURCE_FILE));
+    if (getStaticSourceFile() == null) {
+      setStaticSourceFile(other.getStaticSourceFile());
       sourcePosition = other.sourcePosition;
       setLength(other.getLength());
     }
@@ -2509,7 +2513,7 @@ public class Node implements Serializable {
   /**
    * returns true if all the flags are set in value.
    */
-  private boolean areBitFlagsSet(int value, int flags) {
+  private static boolean areBitFlagsSet(int value, int flags) {
     return (value & flags) == flags;
   }
 
@@ -2556,95 +2560,99 @@ public class Node implements Serializable {
   /*** AST type check methods ***/
 
   public boolean isAdd() {
-    return this.getType() == Token.ADD;
+    return this.type == Token.ADD;
   }
 
   public boolean isAnd() {
-    return this.getType() == Token.AND;
+    return this.type == Token.AND;
   }
 
   public boolean isArrayLit() {
-    return this.getType() == Token.ARRAYLIT;
+    return this.type == Token.ARRAYLIT;
   }
 
   public boolean isArrayPattern() {
-    return this.getType() == Token.ARRAY_PATTERN;
+    return this.type == Token.ARRAY_PATTERN;
   }
 
   public boolean isAssign() {
-    return this.getType() == Token.ASSIGN;
+    return this.type == Token.ASSIGN;
   }
 
   public boolean isAssignAdd() {
-    return this.getType() == Token.ASSIGN_ADD;
+    return this.type == Token.ASSIGN_ADD;
   }
 
   public boolean isBlock() {
-    return this.getType() == Token.BLOCK;
+    return this.type == Token.BLOCK;
   }
 
   public boolean isBreak() {
-    return this.getType() == Token.BREAK;
+    return this.type == Token.BREAK;
   }
 
   public boolean isCall() {
-    return this.getType() == Token.CALL;
+    return this.type == Token.CALL;
   }
 
   public boolean isCase() {
-    return this.getType() == Token.CASE;
+    return this.type == Token.CASE;
   }
 
   public boolean isCast() {
-    return this.getType() == Token.CAST;
+    return this.type == Token.CAST;
   }
 
   public boolean isCatch() {
-    return this.getType() == Token.CATCH;
+    return this.type == Token.CATCH;
   }
 
   public boolean isClass() {
-    return this.getType() == Token.CLASS;
+    return this.type == Token.CLASS;
   }
 
   public boolean isClassMembers() {
-    return this.getType() == Token.CLASS_MEMBERS;
+    return this.type == Token.CLASS_MEMBERS;
   }
 
   public boolean isComma() {
-    return this.getType() == Token.COMMA;
+    return this.type == Token.COMMA;
   }
 
   public boolean isComputedProp() {
-    return this.getType() == Token.COMPUTED_PROP;
+    return this.type == Token.COMPUTED_PROP;
   }
 
   public boolean isContinue() {
-    return this.getType() == Token.CONTINUE;
+    return this.type == Token.CONTINUE;
   }
 
   public boolean isConst() {
-    return this.getType() == Token.CONST;
+    return this.type == Token.CONST;
   }
 
   public boolean isDebugger() {
-    return this.getType() == Token.DEBUGGER;
+    return this.type == Token.DEBUGGER;
   }
 
   public boolean isDec() {
-    return this.getType() == Token.DEC;
+    return this.type == Token.DEC;
   }
 
   public boolean isDefaultCase() {
-    return this.getType() == Token.DEFAULT_CASE;
+    return this.type == Token.DEFAULT_CASE;
   }
 
   public boolean isDefaultValue() {
-    return this.getType() == Token.DEFAULT_VALUE;
+    return this.type == Token.DEFAULT_VALUE;
   }
 
   public boolean isDelProp() {
-    return this.getType() == Token.DELPROP;
+    return this.type == Token.DELPROP;
+  }
+
+  public boolean isDestructuringLhs() {
+    return this.type == Token.DESTRUCTURING_LHS;
   }
 
   public boolean isDestructuringPattern() {
@@ -2652,238 +2660,242 @@ public class Node implements Serializable {
   }
 
   public boolean isDo() {
-    return this.getType() == Token.DO;
+    return this.type == Token.DO;
   }
 
   public boolean isEmpty() {
-    return this.getType() == Token.EMPTY;
+    return this.type == Token.EMPTY;
   }
 
   public boolean isExport() {
-    return this.getType() == Token.EXPORT;
+    return this.type == Token.EXPORT;
   }
 
   public boolean isExprResult() {
-    return this.getType() == Token.EXPR_RESULT;
+    return this.type == Token.EXPR_RESULT;
   }
 
   public boolean isFalse() {
-    return this.getType() == Token.FALSE;
+    return this.type == Token.FALSE;
   }
 
   public boolean isFor() {
-    return this.getType() == Token.FOR;
+    return this.type == Token.FOR;
   }
 
   public boolean isForOf() {
-    return this.getType() == Token.FOR_OF;
+    return this.type == Token.FOR_OF;
   }
 
   public boolean isFunction() {
-    return this.getType() == Token.FUNCTION;
+    return this.type == Token.FUNCTION;
   }
 
   public boolean isGetterDef() {
-    return this.getType() == Token.GETTER_DEF;
+    return this.type == Token.GETTER_DEF;
   }
 
   public boolean isGetElem() {
-    return this.getType() == Token.GETELEM;
+    return this.type == Token.GETELEM;
   }
 
   public boolean isGetProp() {
-    return this.getType() == Token.GETPROP;
+    return this.type == Token.GETPROP;
   }
 
   public boolean isHook() {
-    return this.getType() == Token.HOOK;
+    return this.type == Token.HOOK;
   }
 
   public boolean isIf() {
-    return this.getType() == Token.IF;
+    return this.type == Token.IF;
   }
 
   public boolean isImport() {
-    return this.getType() == Token.IMPORT;
+    return this.type == Token.IMPORT;
+  }
+
+  public boolean isImportSpec() {
+    return this.type == Token.IMPORT_SPEC;
   }
 
   public boolean isIn() {
-    return this.getType() == Token.IN;
+    return this.type == Token.IN;
   }
 
   public boolean isInc() {
-    return this.getType() == Token.INC;
+    return this.type == Token.INC;
   }
 
   public boolean isInstanceOf() {
-    return this.getType() == Token.INSTANCEOF;
+    return this.type == Token.INSTANCEOF;
   }
 
   public boolean isInterfaceMembers() {
-    return this.getType() == Token.INTERFACE_MEMBERS;
+    return this.type == Token.INTERFACE_MEMBERS;
   }
 
   public boolean isRecordType() {
-    return this.getType() == Token.RECORD_TYPE;
+    return this.type == Token.RECORD_TYPE;
   }
 
   public boolean isCallSignature() {
-    return this.getType() == Token.CALL_SIGNATURE;
+    return this.type == Token.CALL_SIGNATURE;
   }
 
   public boolean isIndexSignature() {
-    return this.getType() == Token.INDEX_SIGNATURE;
+    return this.type == Token.INDEX_SIGNATURE;
   }
 
   public boolean isLabel() {
-    return this.getType() == Token.LABEL;
+    return this.type == Token.LABEL;
   }
 
   public boolean isLabelName() {
-    return this.getType() == Token.LABEL_NAME;
+    return this.type == Token.LABEL_NAME;
   }
 
   public boolean isLet() {
-    return this.getType() == Token.LET;
+    return this.type == Token.LET;
   }
 
   public boolean isMemberFunctionDef() {
-    return this.getType() == Token.MEMBER_FUNCTION_DEF;
+    return this.type == Token.MEMBER_FUNCTION_DEF;
   }
 
   public boolean isMemberVariableDef() {
-    return this.getType() == Token.MEMBER_VARIABLE_DEF;
+    return this.type == Token.MEMBER_VARIABLE_DEF;
   }
 
   public boolean isName() {
-    return this.getType() == Token.NAME;
+    return this.type == Token.NAME;
   }
 
   public boolean isNE() {
-    return this.getType() == Token.NE;
+    return this.type == Token.NE;
   }
 
   public boolean isNew() {
-    return this.getType() == Token.NEW;
+    return this.type == Token.NEW;
   }
 
   public boolean isNot() {
-    return this.getType() == Token.NOT;
+    return this.type == Token.NOT;
   }
 
   public boolean isNull() {
-    return this.getType() == Token.NULL;
+    return this.type == Token.NULL;
   }
 
   public boolean isNumber() {
-    return this.getType() == Token.NUMBER;
+    return this.type == Token.NUMBER;
   }
 
   public boolean isObjectLit() {
-    return this.getType() == Token.OBJECTLIT;
+    return this.type == Token.OBJECTLIT;
   }
 
   public boolean isObjectPattern() {
-    return this.getType() == Token.OBJECT_PATTERN;
+    return this.type == Token.OBJECT_PATTERN;
   }
 
   public boolean isOr() {
-    return this.getType() == Token.OR;
+    return this.type == Token.OR;
   }
 
   public boolean isParamList() {
-    return this.getType() == Token.PARAM_LIST;
+    return this.type == Token.PARAM_LIST;
   }
 
   public boolean isRegExp() {
-    return this.getType() == Token.REGEXP;
+    return this.type == Token.REGEXP;
   }
 
   public boolean isRest() {
-    return this.getType() == Token.REST;
+    return this.type == Token.REST;
   }
 
   public boolean isReturn() {
-    return this.getType() == Token.RETURN;
+    return this.type == Token.RETURN;
   }
 
   public boolean isScript() {
-    return this.getType() == Token.SCRIPT;
+    return this.type == Token.SCRIPT;
   }
 
   public boolean isSetterDef() {
-    return this.getType() == Token.SETTER_DEF;
+    return this.type == Token.SETTER_DEF;
   }
 
   public boolean isSpread() {
-    return this.getType() == Token.SPREAD;
+    return this.type == Token.SPREAD;
   }
 
   public boolean isString() {
-    return this.getType() == Token.STRING;
+    return this.type == Token.STRING;
   }
 
   public boolean isStringKey() {
-    return this.getType() == Token.STRING_KEY;
+    return this.type == Token.STRING_KEY;
   }
 
   public boolean isSuper() {
-    return this.getType() == Token.SUPER;
+    return this.type == Token.SUPER;
   }
 
   public boolean isSwitch() {
-    return this.getType() == Token.SWITCH;
+    return this.type == Token.SWITCH;
   }
 
   public boolean isTaggedTemplateLit(){
-    return this.getType() == Token.TAGGED_TEMPLATELIT;
+    return this.type == Token.TAGGED_TEMPLATELIT;
   }
 
   public boolean isTemplateLit(){
-    return this.getType() == Token.TEMPLATELIT;
+    return this.type == Token.TEMPLATELIT;
   }
 
   public boolean isTemplateLitSub(){
-    return this.getType() == Token.TEMPLATELIT_SUB;
+    return this.type == Token.TEMPLATELIT_SUB;
   }
 
   public boolean isThis() {
-    return this.getType() == Token.THIS;
+    return this.type == Token.THIS;
   }
 
   public boolean isThrow() {
-    return this.getType() == Token.THROW;
+    return this.type == Token.THROW;
   }
 
   public boolean isTrue() {
-    return this.getType() == Token.TRUE;
+    return this.type == Token.TRUE;
   }
 
   public boolean isTry() {
-    return this.getType() == Token.TRY;
+    return this.type == Token.TRY;
   }
 
   public boolean isTypeOf() {
-    return this.getType() == Token.TYPEOF;
+    return this.type == Token.TYPEOF;
   }
 
   public boolean isVar() {
-    return this.getType() == Token.VAR;
+    return this.type == Token.VAR;
   }
 
   public boolean isVoid() {
-    return this.getType() == Token.VOID;
+    return this.type == Token.VOID;
   }
 
   public boolean isWhile() {
-    return this.getType() == Token.WHILE;
+    return this.type == Token.WHILE;
   }
 
   public boolean isWith() {
-    return this.getType() == Token.WITH;
+    return this.type == Token.WITH;
   }
 
   public boolean isYield() {
-    return this.getType() == Token.YIELD;
+    return this.type == Token.YIELD;
   }
 }

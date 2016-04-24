@@ -60,41 +60,56 @@ class RemoveUnusedClassProperties
 
   private void removeUnused() {
     for (Node n : candidates) {
-      Preconditions.checkState(n.isGetProp());
-      String propName = n.getLastChild().getString();
-      if (!used.contains(propName)) {
-        Node parent = n.getParent();
-        Node replacement;
-        if (NodeUtil.isAssignmentOp(parent)) {
-          Node assign = parent;
-          Preconditions.checkState(assign != null
-              && NodeUtil.isAssignmentOp(assign)
-              && assign.getFirstChild() == n);
-          compiler.reportChangeToEnclosingScope(assign);
-          // 'this.x = y' to 'y'
-          replacement = assign.getLastChild().detachFromParent();
-        } else if (parent.isInc() || parent.isDec()) {
-          compiler.reportChangeToEnclosingScope(parent);
-          replacement = IR.number(0).srcref(parent);
-        } else {
-          throw new IllegalStateException("unexpected: " + parent);
-        }
-
-        // If the property expression is complex preserve that part of the
-        // expression.
-        if (!n.isQualifiedName()) {
-          Node preserved = n.getFirstChild();
-          while (preserved.isGetProp()) {
-            preserved = preserved.getFirstChild();
+      if (NodeUtil.isObjectLitKey(n)) {
+        String propName = NodeUtil.getObjectLitKeyName(n);
+        if (!used.contains(propName)) {
+          // If the property definition has side-effect, finding a place for it
+          // can be tricky so just leave it in place.
+          if (!n.isStringKey()
+              || !NodeUtil.mayHaveSideEffects(n.getFirstChild(), compiler)) {
+            Node parent = n.getParent();
+            parent.removeChild(n);
+            compiler.reportChangeToEnclosingScope(parent);
           }
-          replacement = IR.comma(
-              preserved.detachFromParent(),
-              replacement)
-              .srcref(parent);
         }
+      } else {
+        Preconditions.checkState(n.isGetProp(), n);
+        String propName = n.getLastChild().getString();
+        if (!used.contains(propName)) {
 
-        compiler.reportChangeToEnclosingScope(parent);
-        parent.getParent().replaceChild(parent, replacement);
+          Node parent = n.getParent();
+          Node replacement;
+          if (NodeUtil.isAssignmentOp(parent)) {
+            Node assign = parent;
+            Preconditions.checkState(assign != null
+                && NodeUtil.isAssignmentOp(assign)
+                && assign.getFirstChild() == n);
+            compiler.reportChangeToEnclosingScope(assign);
+            // 'this.x = y' to 'y'
+            replacement = assign.getLastChild().detachFromParent();
+          } else if (parent.isInc() || parent.isDec()) {
+            compiler.reportChangeToEnclosingScope(parent);
+            replacement = IR.number(0).srcref(parent);
+          } else {
+            throw new IllegalStateException("unexpected: " + parent);
+          }
+
+          // If the property expression is complex preserve that part of the
+          // expression.
+          if (!n.isQualifiedName()) {
+            Node preserved = n.getFirstChild();
+            while (preserved.isGetProp()) {
+              preserved = preserved.getFirstChild();
+            }
+            replacement = IR.comma(
+                preserved.detachFromParent(),
+                replacement)
+                .srcref(parent);
+          }
+
+          compiler.reportChangeToEnclosingScope(parent);
+          parent.getParent().replaceChild(parent, replacement);
+        }
       }
     }
   }
@@ -124,8 +139,10 @@ class RemoveUnusedClassProperties
        case Token.OBJECTLIT: {
          // Assume any object literal definition might be a reflection on the
          // class property.
-         for (Node c : n.children()) {
-           used.add(c.getString());
+         if (!NodeUtil.isObjectDefinePropertiesDefinition(n.getParent())) {
+           for (Node c : n.children()) {
+             used.add(c.getString());
+           }
          }
          break;
        }
@@ -140,13 +157,24 @@ class RemoveUnusedClassProperties
            if (propName.isString()) {
              used.add(propName.getString());
            }
+         } else if (NodeUtil.isObjectDefinePropertiesDefinition(n)) {
+           if (n.getChildCount() == 3 && n.getLastChild().isObjectLit()) {
+             Node objlit = n.getLastChild();
+             for (Node c : objlit.children()) {
+               if (!c.isQuotedString()) {
+                 candidates.add(c);
+               } else {
+                 used.add(c.getString());
+               }
+             }
+           }
          }
          break;
      }
   }
 
   private boolean isRemovablePropertyDefinition(Node n) {
-    Preconditions.checkState(n.isGetProp());
+    Preconditions.checkState(n.isGetProp(), n);
     Node target = n.getFirstChild();
     return target.isThis()
         || (this.removeUnusedConstructorProperties && isConstructor(target))
@@ -180,7 +208,7 @@ class RemoveUnusedClassProperties
         // if the property is never otherwise read we can consider it simply
         // a write.
         // However if the assign expression is used as part of a larger
-        // expression, we much consider it a read. For example:
+        // expression, we must consider it a read. For example:
         //    x = (y.a += 1);
         return NodeUtil.isExpressionResultUsed(parent);
       }

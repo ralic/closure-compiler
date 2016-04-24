@@ -16,20 +16,35 @@
 
 package com.google.javascript.jscomp.newtypes;
 
+import com.google.common.base.Preconditions;
+
 /**
  *
  * @author blickly@google.com (Ben Lickly)
  * @author dimvar@google.com (Dimitris Vardoulakis)
  */
 public final class NamespaceLit extends Namespace {
+  // For when window is used as a namespace
+  private NominalType window = null;
+
   public NamespaceLit(String name) {
     this.name = name;
   }
 
+  NominalType getWindowType() {
+    return this.window;
+  }
+
+  public void maybeSetWindowInstance(JSType obj) {
+    if (obj != null) {
+      this.window = obj.getNominalTypeIfSingletonObj();
+    }
+  }
+
   @Override
   protected JSType computeJSType(JSTypes commonTypes) {
-    ObjectType obj = ObjectType.makeObjectType(
-        null, otherProps, null, false, ObjectKind.UNRESTRICTED);
-    return withNamedTypes(commonTypes, obj);
+    Preconditions.checkState(this.namespaceType == null);
+    return JSType.fromObjectType(ObjectType.makeObjectType(
+        this.window, null, null, this, false, ObjectKind.UNRESTRICTED));
   }
 }

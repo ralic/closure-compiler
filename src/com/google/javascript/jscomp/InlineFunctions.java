@@ -204,12 +204,13 @@ class InlineFunctions implements CompilerPass {
       }
 
       switch (n.getType()) {
-        // Functions expressions in the form of:
-        //   var fooFn = function(x) { return ... }
+          // Functions expressions in the form of:
+          //   var fooFn = function(x) { return ... }
         case Token.VAR:
-          Preconditions.checkState(n.hasOneChild());
+          Preconditions.checkState(n.hasOneChild(), n);
           Node nameNode = n.getFirstChild();
-          if (nameNode.isName() && nameNode.hasChildren()
+          if (nameNode.isName()
+              && nameNode.hasChildren()
               && nameNode.getFirstChild().isFunction()) {
             maybeAddFunction(new FunctionVar(n), t.getModule());
           }
@@ -243,7 +244,7 @@ class InlineFunctions implements CompilerPass {
           if (n.getFirstChild().isFunction()) {
             fnNode = n.getFirstChild();
           } else if (NodeUtil.isFunctionObjectCall(n)) {
-            Node fnIdentifingNode = n.getFirstChild().getFirstChild();
+            Node fnIdentifingNode = n.getFirstFirstChild();
             if (fnIdentifingNode.isFunction()) {
               fnNode = fnIdentifingNode;
             }
@@ -324,7 +325,9 @@ class InlineFunctions implements CompilerPass {
           // TODO(johnlenz): this can be improved by looking at the possible
           // values for locals.  If there are simple values, or constants
           // we could still inline.
-          if (!assumeMinimumCapture && hasLocalNames(fnNode)) {
+          if (!assumeMinimumCapture
+              && hasLocalNames(fnNode)
+              && !NodeUtil.isIIFE(fnNode)) {
             fs.setInline(false);
           }
         }
@@ -564,7 +567,7 @@ class InlineFunctions implements CompilerPass {
      * Find functions that can be inlined.
      */
     private void checkNameUsage(Node n, Node parent) {
-      Preconditions.checkState(n.isName());
+      Preconditions.checkState(n.isName(), n);
 
       if (isCandidateUsage(n)) {
         return;
@@ -584,7 +587,7 @@ class InlineFunctions implements CompilerPass {
       if (parent.isNew()) {
         Node target = parent.getFirstChild();
         if (target.isName() && target.getString().equals(
-            ObjectPropertyStringPreprocess.EXTERN_OBJECT_PROPERTY_STRING)) {
+            SimpleDefinitionFinder.EXTERN_OBJECT_PROPERTY_STRING)) {
           // This method is going to be replaced so don't inline it anywhere.
           fs.setInline(false);
         }
@@ -675,7 +678,7 @@ class InlineFunctions implements CompilerPass {
       FunctionState fs = i.next().getValue();
       if (fs.hasReferences()) {
         // Only inline function if it decreases the code size.
-        boolean lowersCost = mimimizeCost(fs);
+        boolean lowersCost = minimizeCost(fs);
         if (!lowersCost) {
           // It shouldn't be inlined; remove it from the list.
           i.remove();
@@ -693,7 +696,7 @@ class InlineFunctions implements CompilerPass {
    * trims references that increase the cost.
    * @return Whether inlining the references lowers the overall cost.
    */
-  private boolean mimimizeCost(FunctionState fs) {
+  private boolean minimizeCost(FunctionState fs) {
     if (!inliningLowersCost(fs)) {
       // Try again without Block inlining references
       if (fs.hasBlockInliningReferences()) {
@@ -764,7 +767,7 @@ class InlineFunctions implements CompilerPass {
           fsCalled.setRemove(false);
           // For functions that can no longer be removed, check if they should
           // still be inlined.
-          if (!mimimizeCost(fsCalled)) {
+          if (!minimizeCost(fsCalled)) {
             // It can't be inlined remove it from the list.
             fsCalled.setInline(false);
           }
@@ -1056,7 +1059,7 @@ class InlineFunctions implements CompilerPass {
 
     @Override
     public Node getFunctionNode() {
-      return var.getFirstChild().getFirstChild();
+      return var.getFirstFirstChild();
     }
 
     @Override

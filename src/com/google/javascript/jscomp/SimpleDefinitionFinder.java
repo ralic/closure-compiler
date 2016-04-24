@@ -44,11 +44,17 @@ import java.util.Map;
  * complex definitions are treated as unknowns.
  *
  */
-class SimpleDefinitionFinder implements CompilerPass, DefinitionProvider {
+public class SimpleDefinitionFinder implements CompilerPass, DefinitionProvider {
+  public static final String EXTERN_OBJECT_PROPERTY_STRING =
+      "JSCompiler_ObjectPropertyString";
+
   private final AbstractCompiler compiler;
   private final Map<Node, DefinitionSite> definitionSiteMap;
   private final Multimap<String, Definition> nameDefinitionMultimap;
   private final Multimap<String, UseSite> nameUseSiteMultimap;
+  // The same defFinder can be used by multiple passes, but its process method
+  // must be run only once
+  private boolean hasProcessBeenRun = false;
 
   public SimpleDefinitionFinder(AbstractCompiler compiler) {
     this.compiler = compiler;
@@ -103,6 +109,10 @@ class SimpleDefinitionFinder implements CompilerPass, DefinitionProvider {
 
   @Override
   public void process(Node externs, Node source) {
+    if (this.hasProcessBeenRun) {
+      return;
+    }
+    this.hasProcessBeenRun = true;
     NodeTraversal.traverseEs6(
         compiler, externs, new DefinitionGatheringCallback(true));
     NodeTraversal.traverseEs6(
@@ -397,9 +407,8 @@ class SimpleDefinitionFinder implements CompilerPass, DefinitionProvider {
     if (nameNode != null
         && nameNode.isName()) {
       String name = nameNode.getString();
-      if (name.equals(NodeUtil.JSC_PROPERTY_NAME_FN) ||
-             name.equals(
-                ObjectPropertyStringPreprocess.EXTERN_OBJECT_PROPERTY_STRING)) {
+      if (name.equals(NodeUtil.JSC_PROPERTY_NAME_FN)
+          || name.equals(EXTERN_OBJECT_PROPERTY_STRING)) {
         return false;
       }
     }

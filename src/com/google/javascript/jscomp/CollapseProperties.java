@@ -102,26 +102,15 @@ class CollapseProperties implements CompilerPass {
   /** Maps names (e.g. "a.b.c") to nodes in the global namespace tree */
   private Map<String, Name> nameMap;
 
-  private final boolean inlineAliases;
-
-  /**
-   * @param inlineAliases Whether we're allowed to inline local aliases of
-   *     namespaces, etc. It's set to false only by the deprecated property-
-   *     renaming policies {@code HEURISTIC} and {@code AGGRESSIVE_HEURISTIC}.
-   */
-  CollapseProperties(AbstractCompiler compiler, boolean inlineAliases) {
+  CollapseProperties(AbstractCompiler compiler) {
     this.compiler = compiler;
-    this.inlineAliases = inlineAliases;
   }
 
   @Override
   public void process(Node externs, Node root) {
     GlobalNamespace namespace;
     namespace = new GlobalNamespace(compiler, root);
-
-    if (inlineAliases) {
-      inlineAliases(namespace);
-    }
+    inlineAliases(namespace);
     nameMap = namespace.getNameIndex();
     globalNames = namespace.getNameForest();
     checkNamespaces();
@@ -230,6 +219,12 @@ class CollapseProperties implements CompilerPass {
       if (!lvalue.isQualifiedName()) {
         return false;
       }
+      if (lvalue.isName()
+          && compiler.getCodingConvention().isExported(
+              lvalue.getString(),
+              /* local */ false)) {
+        return false;
+      }
       name = namespace.getSlot(lvalue.getQualifiedName());
       if (name != null && name.isInlinableGlobalAlias()) {
         Set<AstChange> newNodes = new LinkedHashSet<>();
@@ -241,6 +236,8 @@ class CollapseProperties implements CompilerPass {
               continue;
             case DIRECT_GET:
             case ALIASING_GET:
+            case PROTOTYPE_GET:
+            case CALL_GET:
               Node newNode = alias.node.cloneTree();
               Node node = ref.node;
               node.getParent().replaceChild(node, newNode);
@@ -279,7 +276,9 @@ class CollapseProperties implements CompilerPass {
     if (name.props == null) {
       return;
     }
-    Preconditions.checkState(!value.matchesQualifiedName(name.getFullName()));
+    Preconditions.checkState(
+        !value.matchesQualifiedName(name.getFullName()),
+        "%s should not match name %s", value, name.getFullName());
     for (Name prop : name.props) {
       rewriteAliasProps(prop, value, depth + 1, newNodes);
       List<Ref> refs = new ArrayList<>(prop.getRefs());
@@ -291,7 +290,7 @@ class CollapseProperties implements CompilerPass {
           } else if (NodeUtil.isObjectLitKey(target)) {
             // Object literal key definitions are a little trickier, as we
             // need to find the assignment target
-            Node gparent = target.getParent().getParent();
+            Node gparent = target.getGrandparent();
             if (gparent.isAssign()) {
               target = gparent.getFirstChild();
             } else {
@@ -1099,8 +1098,8 @@ class CollapseProperties implements CompilerPass {
    */
   private int addStubsForUndeclaredProperties(
       Name n, String alias, Node parent, Node addAfter) {
-    Preconditions.checkState(n.canCollapseUnannotatedChildNames());
-    Preconditions.checkArgument(NodeUtil.isStatementBlock(parent));
+    Preconditions.checkState(n.canCollapseUnannotatedChildNames(), n);
+    Preconditions.checkArgument(NodeUtil.isStatementBlock(parent), parent);
     Preconditions.checkNotNull(addAfter);
     if (n.props == null) {
       return 0;
@@ -1126,13 +1125,19 @@ class CollapseProperties implements CompilerPass {
     return numStubs;
   }
 
-  private static String appendPropForAlias(String root, String prop) {
+  private String appendPropForAlias(String root, String prop) {
     if (prop.indexOf('$') != -1) {
       // Encode '$' in a property as '$0'. Because '0' cannot be the
       // start of an identifier, this will never conflict with our
       // encoding from '.' -> '$'.
       prop = prop.replace("$", "$0");
     }
-    return root + '$' + prop;
+    String result = root + '$' + prop;
+    int id = 1;
+    while (nameMap.containsKey(result)) {
+      result = root + '$' + prop + '$' + id;
+      id++;
+    }
+    return result;
   }
 }

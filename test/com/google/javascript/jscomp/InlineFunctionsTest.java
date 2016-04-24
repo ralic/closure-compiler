@@ -214,15 +214,23 @@ public final class InlineFunctionsTest extends CompilerTestCase {
     test("function f(x){return x}" +
           "var y=f(i)",
           "var y=i");
-    testSame("function f(x){return x}" +
-         "var y=f(i++)");
+    test(
+        "function f(x){return x} var y=f(i++)",
+        "var y = i++");
   }
 
   public void testInlineFunctions13() {
     // inline as block if the input parameter has side-effects.
     test("function f(x){return x}" +
          "var y=f(i++)",
-         "var y;{var x$$inline_0=i++;y=x$$inline_0}");
+         "var y=i++");
+  }
+
+  public void testInlineFunctions13a() {
+    // inline as block if the input parameter has side-effects.
+    test("function f(x){return random() || x}" +
+         "var y=f(i++)",
+         "var y;{var x$$inline_0=i++;y=random() || x$$inline_0}");
   }
 
   public void testInlineFunctions14() {
@@ -634,11 +642,9 @@ public final class InlineFunctionsTest extends CompilerTestCase {
   }
 
   public void testInlineMutableArgsReferencedOnce() {
-    test("function foo(x){return x;}foo([])",
-        "{" +
-        "  var x$$inline_0=[];" +
-        "  x$$inline_0; " +
-        "}");
+    test(
+        "function foo(x){return x;}foo([])",
+        "[]");
   }
 
   public void testInlineMutableArgsReferencedOnce2() {
@@ -788,15 +794,6 @@ public final class InlineFunctionsTest extends CompilerTestCase {
   }
 
   public void testShadowVariables7() {
-    assumeMinimumCapture = false;
-    test("var a=3;" +
-         "function foo(){return a}" +
-         "(function(){var a=5;(function(){foo()})()})()",
-         "var a=3;" +
-         "{var a$$inline_0=5;{a}}"
-         );
-
-    assumeMinimumCapture = true;
     test("var a=3;" +
          "function foo(){return a}" +
          "(function(){var a=5;(function(){foo()})()})()",
@@ -884,16 +881,6 @@ public final class InlineFunctionsTest extends CompilerTestCase {
   }
 
   public void testShadowVariables16() {
-    assumeMinimumCapture = false;
-    // Inline functions defined as a child of the CALL node.
-    test("var a=3;" +
-         "function foo(){return a}" +
-         "(function(){var a=5;(function(){foo()})()})()",
-         "var a=3;" +
-         "{var a$$inline_0=5;{a}}"
-         );
-
-    assumeMinimumCapture = true;
     // Inline functions defined as a child of the CALL node.
     test("var a=3;" +
          "function foo(){return a}" +
@@ -901,7 +888,6 @@ public final class InlineFunctionsTest extends CompilerTestCase {
          "var a=3;" +
          "{var a$$inline_1=5;{a}}"
          );
-
   }
 
   public void testShadowVariables17() {
@@ -1047,6 +1033,19 @@ public final class InlineFunctionsTest extends CompilerTestCase {
          "var a = f(1) + f(2);",
 
          "var a=1+1+1+(1+2+2)");
+  }
+
+  public void testCostBasedInlineForSimpleFunction() {
+    int calls = 100;
+    String src = "function f(a){return a;}\n";
+    for (int i = 0; i < calls; i++) {
+      src += "f(chg());\n";
+    }
+    String expected = "";
+    for (int i = 0; i < calls; i++) {
+      expected += "chg();\n";
+    }
+    test(src, expected);
   }
 
   public void testCostBasedInliningComplex1() {
@@ -1541,14 +1540,21 @@ public final class InlineFunctionsTest extends CompilerTestCase {
     assumeMinimumCapture = false;
 
     // Don't inline if local names might be captured.
-    testSame("(function(){" +
-        "var f = function(a){call(function(){return a})};f()})()");
+    test("(function(){" +
+        "var f = function(a){call(function(){return a})};f()})()",
+        LINE_JOINER.join(
+            "{",
+            "var f$$inline_0 = function(a$$inline_1) {",
+            "  call(function(){ return a$$inline_1 });",
+            "};",
+            "f$$inline_0();",
+            "}"));
 
     assumeMinimumCapture = true;
 
     test("(function(){" +
-         "var f = function(a){call(function(){return a})};f()})()",
-         "{{var a$$inline_0=void 0;call(function(){return a$$inline_0})}}");
+        "var f = function(a){call(function(){return a})};f()})()",
+        "{{var a$$inline_0=void 0;call(function(){return a$$inline_0})}}");
   }
 
   public void testComplexFunctionWithFunctionDefinition3() {
@@ -1639,6 +1645,34 @@ public final class InlineFunctionsTest extends CompilerTestCase {
   public void testFunctionExpressionInlining4() {
     test("var a; a = 1 + (function(){return foo()})()",
          "var a; a = 1 + foo()");
+  }
+
+  public void testFunctionExpressionInlining5() {
+    test(
+        LINE_JOINER.join(
+            "(function(x) {",
+            "  var $fun;",
+            "  var $str;",
+            "  (function() {",
+            "    $fun = function(a) {",
+            "      console.log(a);",
+            "    };",
+            "    $str = 'hello';",
+            "  })();",
+            "  $fun($str);",
+            "})(123);"),
+        LINE_JOINER.join(
+            "{",
+            "var $fun$$inline_1;",
+            "var $str$$inline_2;",
+            "(function(){",
+            "  $fun$$inline_1 = function(a$$inline_3){",
+            "    console.log(a$$inline_3);",
+            "  };",
+            "  $str$$inline_2='hello';}",
+            ")();",
+            "$fun$$inline_1($str$$inline_2);",
+            "}"));
   }
 
   public void testFunctionExpressionCallInlining1() {
@@ -2136,7 +2170,6 @@ public final class InlineFunctionsTest extends CompilerTestCase {
   }
 
   public void testIssue423() {
-    assumeMinimumCapture = false;
     test(
         "(function($) {\n" +
         "  $.fn.multicheck = function(options) {\n" +
@@ -2152,33 +2185,7 @@ public final class InlineFunctionsTest extends CompilerTestCase {
         "    $(this).data('checkboxes');\n" +
         "  }\n" +
         "})(jQuery)",
-        "(function($){" +
-        "  $.fn.multicheck=function(options$$1){" +
-        "    {" +
-        "     options$$1.checkboxes=$(this).siblings(\":checkbox\");" +
-        "     {" +
-        "       $(this).data(\"checkboxes\")" +
-        "     }" +
-        "    }" +
-        "  }" +
-        "})(jQuery)");
 
-    assumeMinimumCapture = true;
-    test(
-        "(function($) {\n" +
-        "  $.fn.multicheck = function(options) {\n" +
-        "    initialize.call(this, options);\n" +
-        "  };\n" +
-        "\n" +
-        "  function initialize(options) {\n" +
-        "    options.checkboxes = $(this).siblings(':checkbox');\n" +
-        "    preload_check_all.call(this);\n" +
-        "  }\n" +
-        "\n" +
-        "  function preload_check_all() {\n" +
-        "    $(this).data('checkboxes');\n" +
-        "  }\n" +
-        "})(jQuery)",
         "{var $$$inline_0=jQuery;\n" +
         "$$$inline_0.fn.multicheck=function(options$$inline_4){\n" +
         "  {options$$inline_4.checkboxes=" +
@@ -2202,13 +2209,6 @@ public final class InlineFunctionsTest extends CompilerTestCase {
   }
 
   public void testAnonymous1() {
-    assumeMinimumCapture = false;
-    test("(function(){var a=10;(function(){var b=a;a++;alert(b)})()})();",
-         "{var a$$inline_0=10;" +
-         "{var b$$inline_1=a$$inline_0;" +
-         "a$$inline_0++;alert(b$$inline_1)}}");
-
-    assumeMinimumCapture = true;
     test("(function(){var a=10;(function(){var b=a;a++;alert(b)})()})();",
         "{var a$$inline_2=10;" +
         "{var b$$inline_0=a$$inline_2;" +
@@ -2228,11 +2228,6 @@ public final class InlineFunctionsTest extends CompilerTestCase {
   }
 
   public void testAnonymous3() {
-    // Introducing a new value into is tricky
-    assumeMinimumCapture = false;
-    testSame("(function(){var a=10;(function(){arguments;})()})();");
-
-    assumeMinimumCapture = true;
     test("(function(){var a=10;(function(){arguments;})()})();",
          "{var a$$inline_0=10;(function(){arguments;})();}");
 

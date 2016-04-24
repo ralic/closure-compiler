@@ -127,6 +127,11 @@ public interface CodingConvention extends Serializable {
   public boolean isPrivate(String name);
 
   /**
+   * Whether this CodingConvention includes a convention for what private names should look like.
+   */
+  public boolean hasPrivacyConvention();
+
+  /**
    * Checks if the given method defines a subclass relationship,
    * and if it does, returns information on that relationship. By default,
    * always returns null. Meant to be overridden by subclasses.
@@ -327,8 +332,33 @@ public interface CodingConvention extends Serializable {
         return 0;
       }
       Node paramParent = parameters.getParent();
-      return paramParent.getChildCount() -
-          paramParent.getIndexOfChild(parameters);
+      return paramParent.getChildCount() - paramParent.getIndexOfChild(parameters);
+    }
+  }
+
+  /**
+   * Builds a {@link Cache} instance from the given call node and returns that instance, or null
+   * if the {@link Node} does not resemble a cache utility call.
+   *
+   * <p>This should match calls to a cache utility method. This type of node is specially considered
+   * for side-effects since conventionally storing something on a cache object would be seen as a
+   * side-effect.
+   *
+   */
+  public Cache describeCachingCall(Node node);
+
+  /** Cache class */
+  public static class Cache {
+    final Node cacheObj;
+    final Node key;
+    final Node valueFn;
+    final Node keyFn;
+
+    public Cache(Node cacheObj, Node key, Node valueFn, Node keyFn) {
+      this.cacheObj = cacheObj;
+      this.key = key;
+      this.valueFn = valueFn;
+      this.keyFn = keyFn;
     }
   }
 

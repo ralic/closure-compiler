@@ -50,11 +50,9 @@ import com.google.javascript.rhino.jstype.UnionType;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.TreeSet;
 import java.util.logging.Logger;
 
@@ -960,10 +958,7 @@ public final class SymbolTable {
       if (instanceType.getOwnerFunction().hasInstanceType()) {
         // Merge the properties of "Foo.prototype" and "new Foo()" together.
         instanceType = instanceType.getOwnerFunction().getInstanceType();
-        Set<String> set = new HashSet<>();
-        Iterables.addAll(set, propNames);
-        set.addAll(instanceType.getOwnPropertyNames());
-        propNames = set;
+        propNames = Iterables.concat(propNames, instanceType.getOwnPropertyNames());
       }
     }
 
@@ -1067,6 +1062,10 @@ public final class SymbolTable {
 
     private JSDocInfo docInfo = null;
 
+    /**
+     * Stored separately from {@link #docInfo}, because the visibility stored
+     * in JSDocInfo is not necessarily authoritative.
+     */
     @Nullable private Visibility visibility = null;
 
     // A scope for symbols that are only documented in JSDoc.
@@ -1501,7 +1500,7 @@ public final class SymbolTable {
         return;
       }
 
-      Symbol symbol = thisStack.get(thisStack.size() - 1);
+      Symbol symbol = Iterables.getLast(thisStack);
       if (symbol != null) {
         Reference ref = symbol.defineReferenceAt(n);
         if (symbol.getDeclaration() == null) {

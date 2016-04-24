@@ -22,7 +22,7 @@ public final class ImplicitNullabilityCheckTest extends CompilerTestCase {
   @Override
   protected void setUp() throws Exception {
     super.setUp();
-    super.enableTypeCheck(CheckLevel.WARNING);
+    super.enableTypeCheck();
   }
 
   @Override
@@ -70,6 +70,11 @@ public final class ImplicitNullabilityCheckTest extends CompilerTestCase {
   public void testUnkownTypenameDoesntWarn() {
     testSame("/** @type {gibberish} */ var x;",
         RhinoErrorReporter.TYPE_PARSE_ERROR);
+  }
+
+  public void testThrowsDoesntWarn() {
+    noWarning("/** @throws {Error} */ function f() {}");
+    noWarning("/** @throws {TypeError}\n * @throws {SyntaxError} */ function f() {}");
   }
 
   private void warnImplicitlyNullable(String js) {

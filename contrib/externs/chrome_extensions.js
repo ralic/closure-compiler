@@ -164,9 +164,24 @@
  * bottom of this file.
  *
  * G. Enums
- * The Chrome extension APIs define many enums that define a set of acceptable
- * strings, however, they do not reify those enum types, therefore, enum
- * parameters should be defined as {@code string}.
+ * An enum's type name and the name of its members must be included in an
+ * externs file, but the values of its members are ignored by the compiler.
+ * To make it clear enums are not being *defined* in this file, we set
+ * string enum values to the empty string (at this time, there are no
+ * known enums of other types).
+ *
+ * As of Mar 2016, the chrome extension docs are incomplete wrt to enums
+ * as they don't list the member names, only their string values. This means
+ * extension authors will tend to use string literals. Therefore, whereever
+ * an enum type should be used, we support either the enum or a string. Once
+ * the docs are complete, new uses of enums will no longer need the "or string"
+ * portion of the type.
+ *
+ * Finally, most places in this file where enums should be used are using only
+ * string. This is historical and is no longer the recommended practice.
+ *
+ * See enum chrome.wallpaper.WallpaperLayout and chrome.wallpaper.setWallpaper's
+ * param for examples.
  *
  * @externs
  *
@@ -387,14 +402,14 @@ chrome.app.window.AppWindow.prototype.hide = function() {};
 
 
 /**
- * @return {!chrome.app.window.Bounds} The current window bounds.
+ * @return {!chrome.app.window.ContentBounds} The current window bounds.
  * @see http://developer.chrome.com/apps/app.window.html#type-AppWindow
  */
 chrome.app.window.AppWindow.prototype.getBounds = function() {};
 
 
 /**
- * @param {!chrome.app.window.Bounds} bounds The new window bounds.
+ * @param {!chrome.app.window.ContentBounds} bounds The new window bounds.
  * @see http://developer.chrome.com/apps/app.window.html#type-AppWindow
  */
 chrome.app.window.AppWindow.prototype.setBounds = function(bounds) {};
@@ -413,6 +428,24 @@ chrome.app.window.AppWindow.prototype.isAlwaysOnTop = function() {};
  * @see http://developer.chrome.com/apps/app.window.html#type-AppWindow
  */
 chrome.app.window.AppWindow.prototype.setAlwaysOnTop = function(alwaysOnTop) {};
+
+
+/**
+ * @param {boolean} alwaysVisible Set whether the window is visible on all
+ *     workspaces.
+ * @see http://developer.chrome.com/apps/app.window.html#type-AppWindow
+ */
+chrome.app.window.AppWindow.prototype.setVisibleOnAllWorkspaces =
+    function(alwaysVisible) {};
+
+
+/**
+ * @param {boolean} wantAllKeys Set whether the window should get all keyboard
+ *     events including system keys that are usually not sent.
+ * @see http://developer.chrome.com/apps/app.window.html#type-AppWindow
+ */
+chrome.app.window.AppWindow.prototype.setInterceptAllKeys =
+    function(wantAllKeys) {};
 
 
 /** @type {!ChromeEvent} */
@@ -441,6 +474,18 @@ chrome.app.window.AppWindow.prototype.onRestored;
 
 /** @type {!Window} */
 chrome.app.window.AppWindow.prototype.contentWindow;
+
+
+/** @type {string} */
+chrome.app.window.AppWindow.prototype.id;
+
+
+/** @type {!chrome.app.window.Bounds} */
+chrome.app.window.AppWindow.prototype.innerBounds;
+
+
+/** @type {!chrome.app.window.Bounds} */
+chrome.app.window.AppWindow.prototype.outerBounds;
 
 
 /**
@@ -2492,7 +2537,7 @@ chrome.tabs.move = function(tabId, moveProperties, opt_callback) {};
  *   lastFocusedWindow: (boolean|undefined),
  *   status: (string|undefined),
  *   title: (string|undefined),
- *   url: (string|undefined),
+ *   url: (!Array<string>|string|undefined),
  *   windowId: (number|undefined),
  *   windowType: (string|undefined),
  *   index: (number|undefined)
@@ -2552,12 +2597,24 @@ chrome.tabs.remove = function(tabIds, opt_callback) {};
 
 
 /**
+ * @typedef {?{
+ *   frameId: (number|undefined)
+ * }}
+ */
+chrome.tabs.SendMessageOptions;
+
+
+/**
  * @param {number} tabId Tab id.
  * @param {*} request The request value of any type.
+ * @param {(!chrome.tabs.SendMessageOptions|function(*): void)=}
+ *     opt_optionsOrCallback The object with an optional "frameId" or the
+ *     callback function.
  * @param {function(*): void=} opt_callback The callback function which
  *     takes a JSON response object sent by the handler of the request.
  */
-chrome.tabs.sendMessage = function(tabId, request, opt_callback) {};
+chrome.tabs.sendMessage = function(tabId, request, opt_optionsOrCallback,
+    opt_callback) {};
 
 
 /**
@@ -2807,6 +2864,14 @@ chrome.i18n.getMessage = function(messageName, opt_args) {};
  * @return {string}
  */
 chrome.i18n.getUILanguage = function() {};
+
+
+/**
+ * @param {string} text User input string to be detected.
+ * @param {function(!Object)} callback The callback for passing back the
+ *     language detection result.
+ */
+chrome.i18n.detectLanguage = function(text, callback) {};
 
 
 /**
@@ -5305,6 +5370,10 @@ chrome.storage.sync;
 chrome.storage.local;
 
 
+/** @type {!StorageArea} */
+chrome.storage.managed;
+
+
 /** @type {!StorageChangeEvent} */
 chrome.storage.onChanged;
 
@@ -6428,22 +6497,35 @@ function StorageArea() {}
 
 
 /**
- * Removes all items from storage.
- * @param {function(): void=} opt_callback Callback function.
- */
-StorageArea.prototype.clear = function(opt_callback) {};
-
-
-/**
- * @param {(string|!Array<string>|!Object|null)=} opt_keys
+ * @param {(string|!Array<string>|!Object|null|function(!Object))=}
+ * keysOrCallback
  *    A single key to get, list of keys to get, or a dictionary
  *    specifying default values (see description of the
  *    object). An empty list or object will return an empty
  *    result object. Pass in null to get the entire contents of storage.
- * @param {function(Object)=} opt_callback Callback with storage items, or null
+ * @param {function(!Object)=} opt_callback Callback with storage items, or null
  *    on failure.
  */
-StorageArea.prototype.get = function(opt_keys, opt_callback) {};
+StorageArea.prototype.get = function(keysOrCallback, opt_callback) {};
+
+
+/**
+ * @param {(string|!Array<string>|null|function(!Object))=} keysOrCallback
+ *    A single key or list of keys to get the total usage for. An empty list
+ *    will return 0. Pass in null to get the total usage of all of storage.
+ * @param {function(number)=} opt_callback
+ *    Callback with the amount of space being used by storage.
+ */
+StorageArea.prototype.getBytesInUse = function(keysOrCallback, opt_callback) {};
+
+
+/**
+ * @param {!Object<string>} items
+ *    Object specifying items to augment storage
+ *    with. Values that cannot be serialized (functions, etc) will be ignored.
+ * @param {function()=} opt_callback Callback.
+ */
+StorageArea.prototype.set = function(items, opt_callback) { };
 
 
 /**
@@ -6455,22 +6537,10 @@ StorageArea.prototype.remove = function(keys, opt_callback) {};
 
 
 /**
- * @param {!Object<string>} keys
- *    Object specifying items to augment storage
- *    with. Values that cannot be serialized (functions, etc) will be ignored.
- * @param {function()=} opt_callback Callback.
+ * Removes all items from storage.
+ * @param {function(): void=} opt_callback Callback function.
  */
-StorageArea.prototype.set = function(keys, opt_callback) { };
-
-
-/**
- * @param {(string|!Array<string>|null)=} opt_keys
- *    A single key or list of keys to get the total usage for. An empty list
- *    will return 0. Pass in null to get the total usage of all of storage.
- * @param {function(number)=} opt_callback
- *    Callback with the amount of space being used by storage.
- */
-StorageArea.prototype.getBytesInUse = function(opt_keys, opt_callback) { };
+StorageArea.prototype.clear = function(opt_callback) {};
 
 
 
@@ -9088,3 +9158,37 @@ chrome.inlineInstallPrivate = {};
  *     (2) an error code in case of error
  */
 chrome.inlineInstallPrivate.install = function(id, opt_callback) {};
+
+
+/**
+ * @const
+ * @see https://goo.gl/7dvJFW
+ */
+chrome.wallpaper = {};
+
+
+/**
+ * @enum {string}
+ * @see https://goo.gl/7dvJFW#type-WallpaperLayout
+ */
+chrome.wallpaper.WallpaperLayout = {
+  STRETCH: '',
+  CENTER: '',
+  CENTER_CROPPED: '',
+};
+
+
+/**
+ * Sets wallpaper to the image at url or wallpaperData with the specified
+ * layout.
+ * @param {{
+ *    data: (ArrayBuffer|undefined),
+ *    url: (string|undefined),
+ *    layout: (chrome.wallpaper.WallpaperLayout|string),
+ *    filename: string,
+ *    thumbnail: (boolean|undefined)
+ *  }} details
+ * @param {function(ArrayBuffer=)} callback
+ * @see https://goo.gl/7dvJFW#method-setWallpaper
+ */
+ chrome.wallpaper.setWallpaper = function(details, callback) {};

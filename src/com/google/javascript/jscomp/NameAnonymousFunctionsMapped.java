@@ -26,7 +26,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.logging.Logger;
 
-
 /**
  * Gives anonymous function names that are optimized to be small and provides a
  * mapping back to the original names. This makes it way easier to debug because
@@ -66,7 +65,8 @@ class NameAnonymousFunctionsMapped implements CompilerPass {
         previousMap != null ?
             previousMap.getNewNameToOriginalNameMap().keySet() :
             Collections.<String>emptySet();
-    this.nameGenerator = new NameGenerator(reserved, PREFIX_STRING, null);
+    this.nameGenerator = new DefaultNameGenerator(
+        reserved, PREFIX_STRING, null);
     this.previousMap = previousMap;
     this.renameMap = new HashMap<>();
   }
@@ -101,7 +101,7 @@ class NameAnonymousFunctionsMapped implements CompilerPass {
         case Token.STRING_KEY:
           return node.getString();
         default:
-          return new CodePrinter.Builder(node).build();
+          return compiler.toSource(node);
       }
     }
 

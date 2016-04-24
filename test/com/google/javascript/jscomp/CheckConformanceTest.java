@@ -21,6 +21,7 @@ import static com.google.common.truth.Truth.assertThat;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.jscomp.CheckConformance.InvalidRequirementSpec;
+import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.ConformanceRules.AbstractRule;
 import com.google.javascript.jscomp.ConformanceRules.ConformanceResult;
 import com.google.javascript.jscomp.testing.BlackHoleErrorManager;
@@ -72,9 +73,12 @@ public final class CheckConformanceTest extends CompilerTestCase {
 
   public CheckConformanceTest() {
     super(EXTERNS, true);
+    enableTranspile();
     enableNormalize();
     enableClosurePass();
     enableClosurePassForExpected();
+    enableRewriteClosureCode();
+    setLanguage(LanguageMode.ECMASCRIPT6_STRICT, LanguageMode.ECMASCRIPT5_STRICT);
   }
 
   @Override
@@ -89,7 +93,7 @@ public final class CheckConformanceTest extends CompilerTestCase {
   @Override
   protected void setUp() throws Exception {
     super.setUp();
-    super.enableTypeCheck(CheckLevel.OFF);
+    super.enableTypeCheck();
     super.enableClosurePass();
     configuration = DEFAULT_CONFORMANCE;
   }
@@ -272,21 +276,72 @@ public final class CheckConformanceTest extends CompilerTestCase {
     testSame(ImmutableList.of(SourceFile.fromCode("bar.js", "eval()")));
   }
 
-  public void testSpecifyingWhitelistAndOnlyApplyToIsRuntimeError() {
+  public void testInferredConstCheck() {
     configuration =
-        "requirement: {\n" +
-        "  type: BANNED_NAME\n" +
-        "  value: 'eval'\n" +
-        "  error_message: 'eval is not allowed'\n" +
-        "  whitelist: 'blah'\n" +
-        "  only_apply_to_regexp: 'test.js$'\n " +
-        "}";
-    try {
-      testSame(ImmutableList.of(SourceFile.fromCode("bar.js", "eval()")));
-      fail("expected IllegalArgumentException");
-    } catch (Exception e) {
-      assertThat(e).isInstanceOf(IllegalArgumentException.class);
-    }
+        LINE_JOINER.join(
+            "requirement: {",
+            "  type: CUSTOM",
+            "  java_class: 'com.google.javascript.jscomp.ConformanceRules$InferredConstCheck'",
+            "  error_message: 'Failed to infer type of constant'",
+            "}");
+
+    testSame("/** @const */ var x = 0;");
+
+    testConformance(
+        LINE_JOINER.join(
+            "/** @constructor */",
+            "function f() {",
+            "  /** @const */ this.foo = unknown;",
+            "}",
+            "var x = new f();"),
+        CheckConformance.CONFORMANCE_VIOLATION);
+
+    testConformance(
+        LINE_JOINER.join(
+            "/** @constructor */",
+            "function f() {}",
+            "/** @this {f} */",
+            "var init_f = function() {",
+            "  /** @const */ this.foo = unknown;",
+            "};",
+            "var x = new f();"),
+        CheckConformance.CONFORMANCE_VIOLATION);
+
+    testConformance(
+        LINE_JOINER.join(
+            "/** @constructor */",
+            "function f() {}",
+            "var init_f = function() {",
+            "  /** @const */ this.FOO = unknown;",
+            "};",
+            "var x = new f();"),
+        CheckConformance.CONFORMANCE_VIOLATION);
+
+    testConformance(
+        LINE_JOINER.join(
+            "/** @constructor */",
+            "function f() {}",
+            "f.prototype.init_f = function() {",
+            "  /** @const */ this.FOO = unknown;",
+            "};",
+            "var x = new f();"),
+        CheckConformance.CONFORMANCE_VIOLATION);
+
+    testSame(
+        LINE_JOINER.join(
+            "/** @constructor */",
+            "function f() {}",
+            "f.prototype.init_f = function() {",
+            "  /** @const {?} */ this.FOO = unknown;",
+            "};",
+            "var x = new f();"));
+
+    testSame(
+        LINE_JOINER.join(
+            "/** @const */",
+            "var ns = {};",
+            "/** @const */",
+            "ns.subns = ns.subns || {};"));
   }
 
   public void testBannedCodePattern1() {
@@ -325,7 +380,8 @@ public final class CheckConformanceTest extends CompilerTestCase {
         EXTERNS,
         "foo.blink();",
         CheckConformance.CONFORMANCE_POSSIBLE_VIOLATION,
-        "Possible violation: blink is annoying");
+        "Possible violation: blink is annoying\n"
+        + "The type information available for this expression is too loose to ensure conformance.");
   }
 
   public void testBannedDep1() {
@@ -343,40 +399,173 @@ public final class CheckConformanceTest extends CompilerTestCase {
         "Violation: testcode is not allowed");
   }
 
-  public void testBannedProperty() {
-    configuration =
-        "requirement: {\n" +
-        "  type: BANNED_PROPERTY\n" +
-        "  value: 'C.prototype.p'\n" +
-        "  error_message: 'C.p is not allowed'\n" +
-        "}";
+  private void testConformance(String src, DiagnosticType warning) {
+    testConformance(src, "", warning);
+  }
 
-    String declarations =
-        "/** @constructor */ function C() {}\n" +
-        "/** @type {string} */\n" +
-        "C.prototype.p;\n" +
-        "/** @constructor */ function D() {}\n" +
-        "/** @type {string} */\n" +
-        "D.prototype.p;\n";
+  private void testConformance(String src1, String src2) {
+    testConformance(src1, src2, null);
+  }
 
-    testSame(
-        declarations + "var d = new D(); d.p = 'boo';");
+  private void testConformance(String src1, String src2, DiagnosticType warning) {
+    ImmutableList<SourceFile> input = ImmutableList.of(
+            SourceFile.fromCode("SRC1", src1),
+            SourceFile.fromCode("SRC2", src2));
+    test(input, input, null, warning);
+  }
 
-    testSame(
-        declarations + "var c = new C(); c.p = 'boo';",
+  public void testBannedProperty0() {
+    configuration = LINE_JOINER.join(
+        "requirement: {",
+        "  type: BANNED_PROPERTY",
+        "  value: 'C.prototype.p'",
+        "  error_message: 'C.p is not allowed'",
+        "  whitelist: 'SRC1'",
+        "}");
+
+    String cDecl = LINE_JOINER.join(
+        "/** @constructor */",
+        "function C() {}",
+        "/** @type {string} */",
+        "C.prototype.p;");
+
+    String dDecl = LINE_JOINER.join(
+        "/** @constructor */ function D() {}",
+        "/** @type {string} */",
+        "D.prototype.p;");
+
+    testConformance(cDecl, dDecl);
+  }
+
+  public void testBannedProperty1() {
+    configuration = LINE_JOINER.join(
+        "requirement: {",
+        "  type: BANNED_PROPERTY",
+        "  value: 'C.prototype.p'",
+        "  error_message: 'C.p is not allowed'",
+        "  whitelist: 'SRC1'",
+        "}");
+
+    String cDecl = LINE_JOINER.join(
+        "/** @constructor */",
+        "function C() {",
+        "  this.p = 'str';",
+        "}");
+
+    String dDecl = LINE_JOINER.join(
+        "/** @constructor */",
+        "function D() {",
+        "  this.p = 'str';",
+        "}");
+
+    testConformance(cDecl, dDecl);
+  }
+
+  public void testBannedProperty2() {
+    configuration = LINE_JOINER.join(
+        "requirement: {",
+        "  type: BANNED_PROPERTY",
+        "  value: 'C.prototype.p'",
+        "  error_message: 'C.p is not allowed'",
+        "  whitelist: 'SRC1'",
+        "}");
+
+    String declarations = LINE_JOINER.join(
+        "/** @constructor */ function SC() {}",
+        "/** @constructor @extends {SC} */",
+        "function C() {}",
+        "/** @type {string} */",
+        "C.prototype.p;",
+        "/** @constructor */ function D() {}",
+        "/** @type {string} */",
+        "D.prototype.p;");
+
+    testConformance(declarations, "var d = new D(); d.p = 'boo';");
+
+    testConformance(declarations, "var c = new C(); c.p = 'boo';",
         CheckConformance.CONFORMANCE_VIOLATION);
 
-    testSame(
-        declarations + "var c = new C(); var foo = c.p;",
+    // Accessing property through a super type is possibily a violation.
+    testConformance(declarations, "var sc = new SC(); sc.p = 'boo';",
+        CheckConformance.CONFORMANCE_POSSIBLE_VIOLATION);
+
+    testConformance(declarations, "var c = new C(); var foo = c.p;",
         CheckConformance.CONFORMANCE_VIOLATION);
 
-    testSame(
-        declarations + "var c = new C(); var foo = 'x' + c.p;",
+    testConformance(declarations, "var c = new C(); var foo = 'x' + c.p;",
         CheckConformance.CONFORMANCE_VIOLATION);
 
-    testSame(
-        declarations + "var c = new C(); c['p'] = 'boo';",
+    testConformance(declarations, "var c = new C(); c['p'] = 'boo';",
         CheckConformance.CONFORMANCE_VIOLATION);
+  }
+
+  public void testBanndedProperty3() {
+    configuration = LINE_JOINER.join(
+        "requirement: {",
+        "  type: BANNED_PROPERTY",
+        "  value: 'C.prototype.p'",
+        "  error_message: 'C.p is not allowed'",
+        "  whitelist: 'SRC1'",
+        "}");
+
+    String cdecl = LINE_JOINER.join(
+        "/** @constructor */ function SC() {}",
+        "/** @constructor @extends {SC} */",
+        "function C() {}",
+        "/** @type {string} */",
+        "C.prototype.p;");
+    String ddecl = LINE_JOINER.join(
+        "/** @constructor @template T */ function D() {}",
+        "/** @param {T} a */",
+        "D.prototype.method = function(a) {",
+        "  use(a.p);",
+        "};");
+
+    testConformance(cdecl, ddecl,
+        CheckConformance.CONFORMANCE_POSSIBLE_VIOLATION);
+  }
+
+  public void testBanndedProperty4() {
+    configuration = LINE_JOINER.join(
+        "requirement: {",
+        "  type: BANNED_PROPERTY",
+        "  value: 'C.prototype.p'",
+        "  error_message: 'C.p is not allowed'",
+        "  whitelist: 'SRC1'",
+        "}");
+
+    String cdecl = LINE_JOINER.join(
+        "/** @constructor */ function SC() {}",
+        "/** @constructor @extends {SC} */",
+        "function C() {}",
+        "/** @type {string} */",
+        "C.prototype.p;",
+        "",
+        "/**",
+        " * @param {!K} key",
+        " * @param {V=} opt_value",
+        " * @constructor",
+        " * @struct",
+        " * @template K, V",
+        " * @private",
+        " */",
+        "var Entry_ = function(key, opt_value) {",
+        "  /** @const {K} */",
+        "  this.key = key;",
+        "  /** @type {V} */",
+        "  this.value = opt_value;",
+        "};");
+
+    String ddecl = LINE_JOINER.join(
+        "/** @constructor @template T */ function D() {}",
+        "/** @param {T} a */",
+        "D.prototype.method = function(a) {",
+        "  var entry = new Entry('key');",
+        "  use(entry.value.p);",
+        "};");
+
+    testConformance(cdecl, ddecl,
+        CheckConformance.CONFORMANCE_POSSIBLE_VIOLATION);
   }
 
   public void testBannedPropertyWrite() {
@@ -833,7 +1022,6 @@ public final class CheckConformanceTest extends CompilerTestCase {
         "  error_message: 'BanExpose Message'\n" +
         "}";
 
-    setExpectParseWarningsThisTest();
     testSame(
         EXTERNS,
         "/** @expose */ var x;",
@@ -920,7 +1108,7 @@ public final class CheckConformanceTest extends CompilerTestCase {
         "function f() {goog.asserts.assertInstanceof(this, Error);}");
   }
 
-  private String config(String rule, String message, String... fields) {
+  private static String config(String rule, String message, String... fields) {
     String result = "requirement: {\n"
         + "  type: CUSTOM\n"
         + "  java_class: '" + rule + "'\n";
@@ -931,11 +1119,11 @@ public final class CheckConformanceTest extends CompilerTestCase {
     return result;
   }
 
-  private String rule(String rule) {
+  private static String rule(String rule) {
     return "com.google.javascript.jscomp.ConformanceRules$" + rule;
   }
 
-  private String value(String value) {
+  private static String value(String value) {
     return "  value: '" + value + "'\n";
   }
 
@@ -995,6 +1183,63 @@ public final class CheckConformanceTest extends CompilerTestCase {
         null);
   }
 
+  public void testCustomBanUnknownProp4() {
+    configuration =
+        config(rule("BanUnknownTypedClassPropsReferences"), "My rule message", value("String"));
+
+    testSame(
+        EXTERNS,
+        LINE_JOINER.join(
+            "/** @constructor */ function f() { /** @type {?} */ this.prop = null; };",
+            "f.prototype.method = function() { alert(this.prop); }"),
+        null);
+  }
+
+  public void testCustomBanUnknownProp5() {
+    configuration =
+        config(rule("BanUnknownTypedClassPropsReferences"), "My rule message", value("String"));
+
+    testSame(
+        EXTERNS,
+        LINE_JOINER.join(
+            "/** @typedef {?} */ var Unk;",
+            "/** @constructor */ function f() { /** @type {?Unk} */ this.prop = null; };",
+            "f.prototype.method = function() { alert(this.prop); }"),
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: My rule message\nThe property \"prop\" on type \"f\"");
+  }
+
+  public void testCustomBanUnknownInterfaceProp1() {
+    configuration =
+        config(rule("BanUnknownTypedClassPropsReferences"), "My rule message", value("String"));
+
+    testSame(
+        EXTERNS,
+        LINE_JOINER.join(
+            "/** @interface */ function I() {}",
+            "I.prototype.method = function() {};",
+            "/** @param {!I} a */ function f(a) {",
+            "  a.gak();",
+            "}"),
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: My rule message\nThe property \"gak\" on type \"I\"");
+  }
+
+  public void testCustomBanUnknownInterfaceProp2() {
+    configuration =
+        config(rule("BanUnknownTypedClassPropsReferences"), "My rule message", value("String"));
+
+    testSame(
+        EXTERNS,
+        LINE_JOINER.join(
+            "/** @interface */ function I() {}",
+            "I.prototype.method = function() {};",
+            "/** @param {I} a */ function f(a) {",
+            "  a.method();",
+            "}"),
+        null);
+  }
+
   public void testCustomBanGlobalVars1() {
     configuration =
         "requirement: {\n" +
@@ -1003,29 +1248,43 @@ public final class CheckConformanceTest extends CompilerTestCase {
         "  error_message: 'BanGlobalVars Message'\n" +
         "}";
 
-    testSame(
-        EXTERNS,
+    testWarning(
         "var x;",
         CheckConformance.CONFORMANCE_VIOLATION,
         "Violation: BanGlobalVars Message");
 
-    testSame(
-        EXTERNS,
+    testWarning(
         "function fn() {}",
         CheckConformance.CONFORMANCE_VIOLATION,
         "Violation: BanGlobalVars Message");
 
-    testSame(
-        "goog.provide('x');");
-
+    testNoWarning("goog.provide('x');");
 
     // TODO(johnlenz): This might be overly conservative but doing otherwise is more complicated
     // so let see if we can get away with this.
-    testSame(
-        EXTERNS,
+    testWarning(
         "goog.provide('x'); var x;",
         CheckConformance.CONFORMANCE_VIOLATION,
         "Violation: BanGlobalVars Message");
+  }
+
+  public void testCustomBanGlobalVars2() {
+    configuration =
+        "requirement: {\n"
+            + "  type: CUSTOM\n"
+            + "  java_class: 'com.google.javascript.jscomp.ConformanceRules$BanGlobalVars'\n"
+            + "  error_message: 'BanGlobalVars Message'\n"
+            + "}";
+
+    testSame(
+        EXTERNS,
+        "goog.scope(function() {\n"
+            + "  var x = {y: 'y'}\n"
+            + "  var z = {\n"
+            + "     [x.y]: 2\n"
+            + "  }\n"
+            + "});",
+        null);
   }
 
   public void testRequireFileoverviewVisibility() {
@@ -1078,39 +1337,36 @@ public final class CheckConformanceTest extends CompilerTestCase {
         "  error_message: 'NoImplicitlyPublicDecls Message'\n" +
         "}";
 
-    testSame(
-        EXTERNS,
+    testWarning(
         "goog.provide('foo.bar');\n" +
-        "/** @constructor */foo.bar.Baz = function(){};",
+        "/** @constructor */foo.bar.Baz = function() {};",
         CheckConformance.CONFORMANCE_VIOLATION,
         "Violation: NoImplicitlyPublicDecls Message");
-    testSame(
+    testNoWarning(
         "/** @package\n@fileoverview */\n" +
         "goog.provide('foo.bar');\n" +
         "/** @constructor */foo.bar.Baz = function(){};");
-    testSame(
+    testNoWarning(
         "goog.provide('foo.bar');\n" +
         "/** @package @constructor */foo.bar.Baz = function(){};");
 
-    testSame(
-        EXTERNS,
+    testWarning(
         "goog.provide('foo.bar');\n" +
         "/** @public @constructor */foo.bar.Baz = function(){};\n" +
         "/** @type {number} */foo.bar.Baz.prototype.quux = 42;",
         CheckConformance.CONFORMANCE_VIOLATION,
         "Violation: NoImplicitlyPublicDecls Message");
-    testSame(
+    testNoWarning(
         "/** @fileoverview\n@package*/\n" +
         "goog.provide('foo.bar');\n" +
         "/** @public @constructor */foo.bar.Baz = function(){};\n" +
         "/** @type {number} */foo.bar.Baz.prototype.quux = 42;");
-    testSame(
+    testNoWarning(
         "goog.provide('foo.bar');\n" +
         "/** @public @constructor */foo.bar.Baz = function(){};\n" +
         "/** @package {number} */foo.bar.Baz.prototype.quux = 42;");
 
-    testSame(
-        EXTERNS,
+    testWarning(
         "goog.provide('foo');\n" +
         "/** @public @constructor */\n" +
         "foo.Bar = function() {\n" +
@@ -1118,13 +1374,13 @@ public final class CheckConformanceTest extends CompilerTestCase {
         "};",
         CheckConformance.CONFORMANCE_VIOLATION,
         "Violation: NoImplicitlyPublicDecls Message");
-    testSame(
+    testNoWarning(
         "goog.provide('foo');\n" +
         "/** @public @constructor */\n" +
         "foo.Bar = function() {\n" +
         "  /** @package {number} */ this.baz = 52;\n" +
         "};");
-    testSame(
+    testNoWarning(
         "/** @fileoverview\n@package */\n" +
         "goog.provide('foo');\n" +
         "/** @constructor */\n" +
@@ -1132,9 +1388,9 @@ public final class CheckConformanceTest extends CompilerTestCase {
         "  /** @type {number} */ this.baz = 52;\n" +
         "};");
 
-    testSame("goog.provide('foo.bar');");
+    testNoWarning("goog.provide('foo.bar');");
 
-    testSame(
+    testNoWarning(
         "goog.provide('foo');\n" +
         "/** @public @constructor */" +
         "foo.Bar = function() {};\n" +
@@ -1145,9 +1401,9 @@ public final class CheckConformanceTest extends CompilerTestCase {
 
     // These kinds of declarations aren't currently caught by
     // NoImplicitlyPublicDecls, but they could be.
-    testSame("var foo");
-    testSame("var foo = 42;");
-    testSame("goog.provide('foo');\n" +
+    testNoWarning("var foo");
+    testNoWarning("var foo = 42;");
+    testNoWarning("goog.provide('foo');\n" +
         "/** @constructor @public */foo.Bar = function() {};\n" +
         "foo.Bar.prototype = {\n" +
         "  baz: function(){}\n" +
@@ -1210,6 +1466,12 @@ public final class CheckConformanceTest extends CompilerTestCase {
 
     testSame(
         EXTERNS,
+        "/** @param {string|null} n */ function f(n) { alert('prop' in n); }",
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: My rule message");
+
+    testSame(
+        EXTERNS,
         "/** @param {string|undefined} n */ function f(n) { alert(n.prop); }",
         CheckConformance.CONFORMANCE_VIOLATION,
         "Violation: My rule message");
@@ -1233,5 +1495,86 @@ public final class CheckConformanceTest extends CompilerTestCase {
     testSame(
         EXTERNS,
         "/** @param {?} n */ function f(n) { alert(n.prop); }", null);
+  }
+
+  public void testCustomBanNullDeref2() {
+    configuration =
+        config(rule("BanNullDeref"), "My rule message");
+
+    final String code = "/** @param {?String} n */ function f(n) { alert(n.prop); }";
+
+    testSame(
+        EXTERNS,
+        code,
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: My rule message");
+
+    configuration =
+        config(rule("BanNullDeref"), "My rule message", value("String"));
+
+    testSame(EXTERNS, code, null);
+  }
+
+  public void testCustomBanNullDeref3() {
+    configuration =
+        config(rule("BanNullDeref"), "My rule message");
+
+
+    final String typedefExterns = LINE_JOINER.join(
+        EXTERNS,
+        "/** @const */ var ns = {};",
+        "/** @enum {number} */ ns.Type.State = {OPEN: 0};",
+        "/** @typedef {{a:string}} */ ns.Type;",
+        "");
+
+    final String code = "/** @return {void} n */ function f() { alert(ns.Type.State.OPEN); }";
+    testSame(typedefExterns, code, null);
+  }
+
+  public void testRequireUseStrict0() {
+    configuration = config(rule("RequireUseStrict"), "My rule message");
+
+    testSame(
+        EXTERNS,
+        "anything;",
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: My rule message");
+  }
+
+  public void testRequireUseStrict1() {
+    configuration = config(rule("RequireUseStrict"), "My rule message");
+
+    testSame(
+        EXTERNS,
+        "'use strict';",
+        null);
+  }
+
+  public void testRequireUseStrict2() {
+    configuration = config(rule("RequireUseStrict"), "My rule message");
+
+    test(
+        EXTERNS,
+        "goog.module('foo');",
+        "'use strict'; /** @const */ var module$exports$foo={};",
+        null, null);
+  }
+
+  public void testRequireUseStrict3() {
+    configuration = config(rule("RequireUseStrict"), "My rule message");
+
+    test(
+        EXTERNS,
+        "export var x = 2;",
+        LINE_JOINER.join(
+          "/**",
+          " * @fileoverview",
+          " * @suppress {missingProvide,missingRequire}",
+          " */",
+          "",
+          "'use strict';",
+          "/** @const */ var module$testcode = {};",
+          "var x$$module$testcode=2;module$testcode.x = x$$module$testcode;"),
+        null, null);
   }
 }

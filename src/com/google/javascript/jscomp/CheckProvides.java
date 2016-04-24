@@ -30,16 +30,14 @@ import java.util.Map;
  */
 class CheckProvides implements HotSwapCompilerPass {
   private final AbstractCompiler compiler;
-  private final CheckLevel checkLevel;
   private final CodingConvention codingConvention;
 
-  static final DiagnosticType MISSING_PROVIDE_WARNING = DiagnosticType.disabled(
+  static final DiagnosticType MISSING_PROVIDE_WARNING = DiagnosticType.warning(
       "JSC_MISSING_PROVIDE",
       "missing goog.provide(''{0}'')");
 
-  CheckProvides(AbstractCompiler compiler, CheckLevel checkLevel) {
+  CheckProvides(AbstractCompiler compiler) {
     this.compiler = compiler;
-    this.checkLevel = checkLevel;
     this.codingConvention = compiler.getCodingConvention();
   }
 
@@ -59,6 +57,7 @@ class CheckProvides implements HotSwapCompilerPass {
     private final Map<String, Node> provides = new HashMap<>();
     private final Map<String, Node> ctors = new HashMap<>();
     private final CodingConvention convention;
+    private boolean containsRequires = false;
 
     CheckProvidesCallback(CodingConvention convention){
       this.convention = convention;
@@ -72,6 +71,9 @@ class CheckProvides implements HotSwapCompilerPass {
             codingConvention.extractClassNameIfProvide(n, parent);
           if (providedClassName != null) {
             provides.put(providedClassName, n);
+          }
+          if (!containsRequires && codingConvention.extractClassNameIfRequire(n, parent) != null) {
+            containsRequires = true;
           }
           break;
         case Token.FUNCTION:
@@ -89,7 +91,7 @@ class CheckProvides implements HotSwapCompilerPass {
     }
 
     private void visitFunctionNode(Node n, Node parent) {
-      // TODO(user): Use NodeUtil.getBestJSDocInfo/getFunctionName to recognize all functions.
+      // TODO(user): Use isPrivate method below to recognize all functions.
       Node name = null;
       JSDocInfo info = parent.getJSDocInfo();
       if (info != null && info.isConstructor()) {
@@ -113,40 +115,50 @@ class CheckProvides implements HotSwapCompilerPass {
     }
 
     private void visitClassNode(Node classNode) {
-      String name = NodeUtil.getClassName(classNode);
-      if (name != null) {
+      String name = NodeUtil.getName(classNode);
+      if (name != null && !isPrivate(classNode)) {
         ctors.put(name, classNode);
       }
     }
 
+    private boolean isPrivate(Node classOrFn) {
+      JSDocInfo info = NodeUtil.getBestJSDocInfo(classOrFn);
+      if (info != null && info.getVisibility().equals(JSDocInfo.Visibility.PRIVATE)) {
+        return true;
+      }
+      return compiler.getCodingConvention().isPrivate(NodeUtil.getName(classOrFn));
+    }
+
     private void visitScriptNode() {
       for (Map.Entry<String, Node> ctorEntry : ctors.entrySet()) {
-        String ctor = ctorEntry.getKey();
+        String ctorName = ctorEntry.getKey();
         int index = -1;
         boolean found = false;
 
-        if (ctor.startsWith("$jscomp.")) {
+        if (ctorName.startsWith("$jscomp.")
+            || ClosureRewriteModule.isModuleContent(ctorName)
+            || ClosureRewriteModule.isModuleExport(ctorName)) {
           continue;
         }
 
         do {
-          index = ctor.indexOf('.', index + 1);
-          String provideKey = index == -1 ? ctor : ctor.substring(0, index);
+          index = ctorName.indexOf('.', index + 1);
+          String provideKey = index == -1 ? ctorName : ctorName.substring(0, index);
           if (provides.containsKey(provideKey)) {
             found = true;
             break;
           }
         } while (index != -1);
 
-        if (!found) {
+        if (!found && (containsRequires || !provides.isEmpty())) {
           Node n = ctorEntry.getValue();
           compiler.report(
-              JSError.make(n,
-                  checkLevel, MISSING_PROVIDE_WARNING, ctorEntry.getKey()));
+              JSError.make(n, MISSING_PROVIDE_WARNING, ctorEntry.getKey()));
         }
       }
       provides.clear();
       ctors.clear();
+      containsRequires = false;
     }
   }
 }

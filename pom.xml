@@ -78,6 +78,7 @@
 
   <modules>
     <module>externs/pom.xml</module>
+    <module>pom-gwt.xml</module>
     <module>pom-main.xml</module>
   </modules>
 
@@ -170,7 +171,7 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-jar-plugin</artifactId>
-          <version>2.4</version>
+          <version>2.5</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
@@ -180,7 +181,7 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-source-plugin</artifactId>
-          <version>2.2.1</version>
+          <version>2.4</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>

@@ -74,8 +74,8 @@ abstract class MethodCompilerPass implements CompilerPass {
       NodeTraversal.traverseEs6(compiler, externs, new GetExternMethods());
     }
 
-    NodeTraversal.traverseRoots(compiler, new GatherSignatures(), externs, root);
-    NodeTraversal.traverseRoots(compiler, getActingCallback(), externs, root);
+    NodeTraversal.traverseRootsEs6(compiler, new GatherSignatures(), externs, root);
+    NodeTraversal.traverseRootsEs6(compiler, getActingCallback(), externs, root);
   }
 
   /**
@@ -124,7 +124,7 @@ abstract class MethodCompilerPass implements CompilerPass {
       switch (n.getType()) {
         case Token.GETPROP:
         case Token.GETELEM: {
-          Node dest = n.getFirstChild().getNext();
+          Node dest = n.getSecondChild();
 
           if (!dest.isString()) {
             return;
@@ -178,7 +178,7 @@ abstract class MethodCompilerPass implements CompilerPass {
       switch (n.getType()) {
         case Token.GETPROP:
         case Token.GETELEM:
-          Node dest = n.getFirstChild().getNext();
+          Node dest = n.getSecondChild();
 
           if (dest.isString()) {
             if (dest.getString().equals("prototype")) {
@@ -238,12 +238,12 @@ abstract class MethodCompilerPass implements CompilerPass {
         //     function or name            <- assignee
         case Token.GETPROP:
         case Token.GETELEM:
-          Node dest = n.getFirstChild().getNext();
-          Node parent = n.getParent().getParent();
+          Node dest = n.getSecondChild();
+          Node parent = n.getGrandparent();
 
           if (dest.isString() &&
               parent.isAssign()) {
-            Node assignee = parent.getFirstChild().getNext();
+            Node assignee = parent.getSecondChild();
 
             addPossibleSignature(dest.getString(), assignee, t);
           }

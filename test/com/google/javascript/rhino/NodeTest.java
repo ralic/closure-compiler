@@ -125,7 +125,7 @@ public class NodeTest extends TestCase {
 
   public void testCheckTreeEqualsImplDifferentIncProp() {
     Node node1 = new Node(Token.INC);
-    node1.putIntProp(Node.INCRDECR_PROP, 1);
+    node1.putBooleanProp(Node.INCRDECR_PROP, true);
     Node node2 = new Node(Token.INC);
     assertNotNull(node1.checkTreeEqualsImpl(node2));
   }
@@ -401,7 +401,7 @@ public class NodeTest extends TestCase {
   public void testSharedProps3() {
     Node n = getVarRef("A");
     n.putIntProp(Node.SIDE_EFFECT_FLAGS, 2);
-    n.putIntProp(Node.INCRDECR_PROP, 3);
+    n.putBooleanProp(Node.INCRDECR_PROP, true);
     Node m = new Node(Token.TRUE);
     m.clonePropsFrom(n);
 
@@ -527,6 +527,36 @@ public class NodeTest extends TestCase {
     assertNull(
         IR.getprop(IR.call(IR.name("a")), IR.string("b")).getQualifiedName());
   }
+
+  public void testJSDocInfoClone() {
+    Node original = IR.var(IR.name("varName"));
+    JSDocInfoBuilder builder = new JSDocInfoBuilder(false);
+    builder.recordType(new JSTypeExpression(IR.name("TypeName"), "blah"));
+    JSDocInfo info = builder.build();
+    original.getFirstChild().setJSDocInfo(info);
+
+    // By default the JSDocInfo and JSTypeExpression objects are not cloned
+    Node clone = original.cloneTree();
+    assertSame(original.getFirstChild().getJSDocInfo(), clone.getFirstChild().getJSDocInfo());
+    assertSame(
+        original.getFirstChild().getJSDocInfo().getType(),
+        clone.getFirstChild().getJSDocInfo().getType());
+    assertSame(
+        original.getFirstChild().getJSDocInfo().getType().getRoot(),
+        clone.getFirstChild().getJSDocInfo().getType().getRoot());
+
+    // If requested the JSDocInfo and JSTypeExpression objects are cloned.
+    // This is required because compiler classes are modifying the type expressions in place
+    clone = original.cloneTree(true);
+    assertNotSame(original.getFirstChild().getJSDocInfo(), clone.getFirstChild().getJSDocInfo());
+    assertNotSame(
+        original.getFirstChild().getJSDocInfo().getType(),
+        clone.getFirstChild().getJSDocInfo().getType());
+    assertNotSame(
+        original.getFirstChild().getJSDocInfo().getType().getRoot(),
+        clone.getFirstChild().getJSDocInfo().getType().getRoot());
+  }
+
 
   private static Node getVarRef(String name) {
     return Node.newString(Token.NAME, name);

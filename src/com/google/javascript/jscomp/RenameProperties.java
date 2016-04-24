@@ -19,6 +19,7 @@ package com.google.javascript.jscomp;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Sets;
 import com.google.javascript.jscomp.AbstractCompiler.LifeCycleStage;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.rhino.IR;
@@ -81,6 +82,9 @@ class RenameProperties implements CompilerPass {
   // Names to which properties shouldn't be renamed, to avoid name conflicts
   private final Set<String> quotedNames = new HashSet<>();
 
+  // Shared name generator
+  private final NameGenerator nameGenerator;
+
   private static final Comparator<Property> FREQUENCY_COMPARATOR =
     new Comparator<Property>() {
       @Override
@@ -119,7 +123,7 @@ class RenameProperties implements CompilerPass {
   static final DiagnosticType BAD_ARG = DiagnosticType.error(
       "JSC_BAD_RENAME_PROPERTY_FUNCTION_NAME_ARG",
       "Bad " + RENAME_PROPERTY_FUNCTION_NAME + " argument - " +
-      "'{0}' is not a valid JavaScript identifier");
+      "''{0}'' is not a valid JavaScript identifier");
 
   /**
    * Creates an instance.
@@ -127,9 +131,13 @@ class RenameProperties implements CompilerPass {
    * @param compiler The JSCompiler
    * @param generatePseudoNames Generate pseudo names. e.g foo -> $foo$ instead
    *        of compact obfuscated names. This is used for debugging.
+   * @param nameGenerator a shared NameGenerator that this instance can use;
+   *        the instance may reset or reconfigure it, so the caller should
+   *        not expect any state to be preserved
    */
-  RenameProperties(AbstractCompiler compiler, boolean generatePseudoNames) {
-    this(compiler, generatePseudoNames, null, null);
+  RenameProperties(AbstractCompiler compiler, boolean generatePseudoNames,
+      NameGenerator nameGenerator) {
+    this(compiler, generatePseudoNames, null, null, nameGenerator);
   }
 
   /**
@@ -140,10 +148,15 @@ class RenameProperties implements CompilerPass {
    *        of compact obfuscated names. This is used for debugging.
    * @param prevUsedPropertyMap The property renaming map used in a previous
    *        compilation.
+   * @param nameGenerator a shared NameGenerator that this instance can use;
+   *        the instance may reset or reconfigure it, so the caller should
+   *        not expect any state to be preserved
    */
   RenameProperties(AbstractCompiler compiler,
-      boolean generatePseudoNames, VariableMap prevUsedPropertyMap) {
-    this(compiler, generatePseudoNames, prevUsedPropertyMap, null);
+      boolean generatePseudoNames, VariableMap prevUsedPropertyMap,
+      NameGenerator nameGenerator) {
+    this(compiler, generatePseudoNames, prevUsedPropertyMap, null,
+        nameGenerator);
   }
 
   /**
@@ -155,16 +168,21 @@ class RenameProperties implements CompilerPass {
    * @param prevUsedPropertyMap The property renaming map used in a previous
    *        compilation.
    * @param reservedCharacters If specified these characters won't be used in
-   *   generated names
+   *        generated names
+   * @param nameGenerator a shared NameGenerator that this instance can use;
+   *        the instance may reset or reconfigure it, so the caller should
+   *        not expect any state to be preserved
    */
   RenameProperties(AbstractCompiler compiler,
       boolean generatePseudoNames,
       VariableMap prevUsedPropertyMap,
-      @Nullable char[] reservedCharacters) {
+      @Nullable char[] reservedCharacters,
+      NameGenerator nameGenerator) {
     this.compiler = compiler;
     this.generatePseudoNames = generatePseudoNames;
     this.prevUsedPropertyMap = prevUsedPropertyMap;
     this.reservedCharacters = reservedCharacters;
+    this.nameGenerator = nameGenerator;
     externedNames.addAll(compiler.getExternProperties());
   }
 
@@ -175,7 +193,7 @@ class RenameProperties implements CompilerPass {
     NodeTraversal.traverseEs6(compiler, root, new ProcessProperties());
 
     Set<String> reservedNames =
-        new HashSet<>(externedNames.size() + quotedNames.size());
+        Sets.newHashSetWithExpectedSize(externedNames.size() + quotedNames.size());
     reservedNames.addAll(externedNames);
     reservedNames.addAll(quotedNames);
 
@@ -207,7 +225,7 @@ class RenameProperties implements CompilerPass {
     // Update the call nodes.
     for (Map.Entry<Node, Node> nodeEntry : callNodeToParentMap.entrySet()) {
       Node parent = nodeEntry.getValue();
-      Node firstArg = nodeEntry.getKey().getFirstChild().getNext();
+      Node firstArg = nodeEntry.getKey().getSecondChild();
       StringBuilder sb = new StringBuilder();
       for (String oldName : Splitter.on('.').split(firstArg.getString())) {
         Property p = propertyMap.get(oldName);
@@ -267,15 +285,14 @@ class RenameProperties implements CompilerPass {
    *     renamed
    */
   private void generateNames(Set<Property> props, Set<String> reservedNames) {
-    NameGenerator nameGen = new NameGenerator(
-        reservedNames, "", reservedCharacters);
+    nameGenerator.reset(reservedNames, "", reservedCharacters);
     for (Property p : props) {
       if (generatePseudoNames) {
         p.newName = "$" + p.oldName + "$";
       } else {
         // If we haven't already given this property a reusable name.
         if (p.newName == null) {
-          p.newName = nameGen.generateNextName();
+          p.newName = nameGenerator.generateNextName();
         }
       }
       reservedNames.add(p.newName);
@@ -311,7 +328,7 @@ class RenameProperties implements CompilerPass {
     public void visit(NodeTraversal t, Node n, Node parent) {
       switch (n.getType()) {
         case Token.GETPROP:
-          Node propNode = n.getFirstChild().getNext();
+          Node propNode = n.getSecondChild();
           if (propNode.isString()) {
             maybeMarkCandidate(propNode);
           }
@@ -396,7 +413,7 @@ class RenameProperties implements CompilerPass {
      * @param t The traversal
      */
     private void countCallCandidates(NodeTraversal t, Node callNode) {
-      Node firstArg = callNode.getFirstChild().getNext();
+      Node firstArg = callNode.getSecondChild();
       if (!firstArg.isString()) {
         t.report(callNode, BAD_CALL);
         return;

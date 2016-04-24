@@ -163,7 +163,11 @@ public class IR {
 
   public static Node declaration(Node lhs, int type) {
     Preconditions.checkState(
-        lhs.isName() || lhs.isArrayPattern() || lhs.isObjectPattern());
+        lhs.isName() || lhs.isDestructuringPattern() || lhs.isDestructuringLhs(),
+        lhs);
+    if (lhs.isDestructuringPattern()) {
+      lhs = new Node(Token.DESTRUCTURING_LHS, lhs);
+    }
     return new Node(type, lhs);
   }
 
@@ -172,6 +176,7 @@ public class IR {
       Preconditions.checkState(!lhs.hasChildren());
     } else {
       Preconditions.checkState(lhs.isArrayPattern() || lhs.isObjectPattern());
+      lhs = new Node(Token.DESTRUCTURING_LHS, lhs);
     }
     Preconditions.checkState(mayBeExpression(value),
         "%s can't be an expression", value);
@@ -332,13 +337,10 @@ public class IR {
     return new Node(Token.CONTINUE, name);
   }
 
-
-  //
-
   public static Node call(Node target, Node ... args) {
     Node call = new Node(Token.CALL, target);
     for (Node arg : args) {
-      Preconditions.checkState(mayBeExpression(arg));
+      Preconditions.checkState(mayBeExpression(arg), arg);
       call.addChildToBack(arg);
     }
     return call;
@@ -354,6 +356,8 @@ public class IR {
   }
 
   public static Node name(String name) {
+    Preconditions.checkState(name.indexOf('.') == -1,
+        "Invalid name. Did you mean to use NodeUtil.newQName?");
     return Node.newString(Token.NAME, name);
   }
 
@@ -390,8 +394,8 @@ public class IR {
   }
 
   public static Node assign(Node target, Node expr) {
-    Preconditions.checkState(target.isValidAssignmentTarget());
-    Preconditions.checkState(mayBeExpression(expr));
+    Preconditions.checkState(target.isValidAssignmentTarget(), target);
+    Preconditions.checkState(mayBeExpression(expr), expr);
     return new Node(Token.ASSIGN, target, expr);
   }
 
@@ -423,7 +427,7 @@ public class IR {
   }
 
   /**
-   * "<"
+   * "&lt;"
    */
   public static Node lt(Node expr1, Node expr2) {
     return binaryOp(Token.LT, expr1, expr2);
@@ -469,8 +473,10 @@ public class IR {
     return unaryOp(Token.POS, expr1);
   }
 
-  public static Node cast(Node expr1) {
-    return unaryOp(Token.CAST, expr1);
+  public static Node cast(Node expr1, JSDocInfo jsdoc) {
+    Node op = unaryOp(Token.CAST, expr1);
+    op.setJSDocInfo(jsdoc);
+    return op;
   }
 
   public static Node inc(Node exp, boolean isPost) {
@@ -562,7 +568,7 @@ public class IR {
   }
 
   public static Node rest(String name) {
-    return Node.newString(Token.REST, name);
+    return new Node(Token.REST, name(name));
   }
 
   public static Node spread(Node expr) {
@@ -739,6 +745,7 @@ public class IR {
       case Token.SUB:
       case Token.SUPER:
       case Token.TEMPLATELIT:
+      case Token.TAGGED_TEMPLATELIT:
       case Token.THIS:
       case Token.TYPEOF:
       case Token.TRUE:

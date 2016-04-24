@@ -15,6 +15,8 @@
  */
 package com.google.javascript.jscomp;
 
+import static junit.framework.TestCase.assertFalse;
+
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
@@ -124,7 +126,7 @@ public final class InferConstsTest extends TestCase {
         + "[{a: x} = {a: 'x'}] = {};", "x");
     testNotConsts(""
         + "let fg = '', bg = '';"
-        + "({fg, bg}) = pal[val - 1];", "fg", "bg");
+        + "({fg, bg} = pal[val - 1]);", "fg", "bg");
   }
 
   public void testDefaultValue() {
@@ -170,8 +172,7 @@ public final class InferConstsTest extends TestCase {
         assertTrue("Expect constant: " + name,
             constFinder.foundNodes.containsKey(name));
       } else {
-        assertTrue("Unexpected constant: " + name,
-            !constFinder.foundNodes.containsKey(name));
+        assertFalse("Unexpected constant: " + name, constFinder.foundNodes.containsKey(name));
       }
     }
   }

@@ -18,14 +18,13 @@ package com.google.javascript.jscomp;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 
-
 /**
  * Splits variable declarations that declare multiple variables into
  * separate declarations, if at least one of the declarations is a
  * destructuring declaration. For example
  * <pre>
  *   var [a, b] = foo(), c = bar();}
- * <pre>
+ * </pre>
  * becomes
  * <pre>
  *   var [a, b] = foo();
@@ -71,4 +70,3 @@ public final class Es6SplitVariableDeclarations extends
     }
   }
 }
-

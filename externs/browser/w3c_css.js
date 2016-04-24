@@ -76,6 +76,7 @@ StyleSheet.prototype.media;
 
 /**
  * @constructor
+ * @implements {IArrayLike<!StyleSheet>}
  * @see http://www.w3.org/TR/DOM-Level-2-Style/stylesheets.html#StyleSheets-StyleSheetList
  */
 function StyleSheetList() {}
@@ -95,6 +96,7 @@ StyleSheetList.prototype.item = function(index) {};
 
 /**
  * @constructor
+ * @implements {IArrayLike<!MediaList>}
  * @see http://www.w3.org/TR/DOM-Level-2-Style/stylesheets.html#StyleSheets-MediaList
  */
 function MediaList() {}
@@ -177,6 +179,7 @@ CSSStyleSheet.prototype.deleteRule = function(index) {};
 
 /**
  * @constructor
+ * @implements {IArrayLike<!CSSRule>}
  * @see http://www.w3.org/TR/DOM-Level-2-Style/css.html#CSS-CSSRuleList
  */
 function CSSRuleList() {}
@@ -799,6 +802,7 @@ CSSPrimitiveValue.prototype.setStringValue = function(stringType, stringValue) {
 /**
  * @constructor
  * @extends {CSSValue}
+ * @implements {IArrayLike<!CSSValue>}
  * @see http://www.w3.org/TR/DOM-Level-2-Style/css.html#CSS-CSSValueList
  */
 function CSSValueList() {}
@@ -1207,8 +1211,8 @@ CSSProperties.prototype.borderImageRepeat;
 CSSProperties.prototype.borderImage;
 
 /**
- * @type {string|number}
- * @see http://www.w3.org/TR/DOM-Level-2-Style/css.html#CSS-CSSProperties-bottom
+ * @type {string}
+ * @see https://www.w3.org/TR/1998/REC-CSS2-19980512/visuren.html#propdef-bottom
  */
 CSSProperties.prototype.bottom;
 
@@ -1371,8 +1375,8 @@ CSSProperties.prototype.fontWeight;
 CSSProperties.prototype.height;
 
 /**
- * @type {string|number}
- * @see http://www.w3.org/TR/DOM-Level-2-Style/css.html#CSS-CSSProperties-left
+ * @type {string}
+ * @see https://www.w3.org/TR/1998/REC-CSS2-19980512/visuren.html#propdef-left
  */
 CSSProperties.prototype.left;
 
@@ -1629,8 +1633,8 @@ CSSProperties.prototype.resize;
 CSSProperties.prototype.richness;
 
 /**
- * @type {string|number}
- * @see http://www.w3.org/TR/DOM-Level-2-Style/css.html#CSS-CSSProperties-right
+ * @type {string}
+ * @see https://www.w3.org/TR/1998/REC-CSS2-19980512/visuren.html#propdef-right
  */
 CSSProperties.prototype.right;
 
@@ -1713,8 +1717,8 @@ CSSProperties.prototype.textShadow;
 CSSProperties.prototype.textTransform;
 
 /**
- * @type {string|number}
- * @see http://www.w3.org/TR/DOM-Level-2-Style/css.html#CSS-CSSProperties-top
+ * @type {string}
+ * @see https://www.w3.org/TR/1998/REC-CSS2-19980512/visuren.html#propdef-top
  */
 CSSProperties.prototype.top;
 
@@ -2119,7 +2123,7 @@ Element.prototype.getClientRects = function() {};
 Element.prototype.getBoundingClientRect = function() {};
 
 /**
- * @param {boolean=} opt_top
+ * @param {(boolean|{behavior: string, block: string})=} opt_top
  * @see http://www.w3.org/TR/cssom-view/#dom-element-scrollintoview
  */
 Element.prototype.scrollIntoView = function(opt_top) {};
@@ -2293,6 +2297,7 @@ MouseEvent.prototype.offsetY;
 /**
  * @constructor
  * @see http://www.w3.org/TR/cssom-view/#the-clientrectlist-interface
+ * @implements {IArrayLike<!ClientRect>}
  */
 function ClientRectList() {}
 
@@ -2356,6 +2361,14 @@ ClientRect.prototype.height;
  * http://www.w3.org/TR/css3-conditional/#CSS-interface
  */
 function CSSInterface() {}
+
+/**
+ * @param {string} ident
+ * @return {string}
+ * @see http://www.w3.org/TR/cssom/#the-css.escape()-method
+ * @throws DOMException {@see DOMException.INVALID_CHARACTER_ERR}
+ */
+CSSInterface.prototype.escape = function(ident) {};
 
 /**
  * @param {string} property

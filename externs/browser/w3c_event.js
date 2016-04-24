@@ -134,6 +134,13 @@ Event.prototype.timeStamp;
 Event.prototype.path;
 
 /**
+ * Present for events spawned in browsers that support shadow dom.
+ * @type {function():Array<!EventTarget>|undefined}
+ * @see https://www.w3.org/TR/shadow-dom/#widl-Event-deepPath
+ */
+Event.prototype.deepPath;
+
+/**
  * @return {undefined}
  */
 Event.prototype.stopPropagation = function() {};
@@ -370,3 +377,30 @@ KeyboardEvent.prototype.metaKey;
  * @return {boolean}
  */
 KeyboardEvent.prototype.getModifierState = function(keyIdentifierArg) {};
+
+/**
+ * @typedef {{
+ *   bubbles: (boolean|undefined),
+ *   cancelable: (boolean|undefined),
+ *   view: (Window|undefined),
+ *   detail: (number|undefined),
+ *   relatedTarget: (EventTarget|undefined)
+ * }}
+ */
+var FocusEventInit;
+
+
+/**
+ * The FocusEvent interface provides specific contextual information associated
+ * with Focus events.
+ * http://www.w3.org/TR/DOM-Level-3-Events/#events-focusevent
+ *
+ * @constructor
+ * @extends {UIEvent}
+ * @param {string} type
+ * @param {FocusEventInit=} opt_eventInitDict
+ */
+function FocusEvent(type, opt_eventInitDict) {}
+
+/** @type {EventTarget} */
+FocusEvent.prototype.relatedTarget;

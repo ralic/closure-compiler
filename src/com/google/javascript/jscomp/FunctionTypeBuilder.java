@@ -16,6 +16,7 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.base.Strings.nullToEmpty;
 import static com.google.javascript.jscomp.TypeCheck.BAD_IMPLEMENTED_TYPE;
 import static com.google.javascript.rhino.jstype.JSTypeNative.FUNCTION_FUNCTION_TYPE;
 import static com.google.javascript.rhino.jstype.JSTypeNative.UNKNOWN_TYPE;
@@ -209,7 +210,7 @@ final class FunctionTypeBuilder {
       Node errorRoot, TypedScope scope) {
     Preconditions.checkNotNull(errorRoot);
 
-    this.fnName = fnName == null ? "" : fnName;
+    this.fnName = nullToEmpty(fnName);
     this.codingConvention = compiler.getCodingConvention();
     this.typeRegistry = compiler.getTypeRegistry();
     this.errorRoot = errorRoot;
@@ -330,22 +331,22 @@ final class FunctionTypeBuilder {
   FunctionTypeBuilder inferInheritance(@Nullable JSDocInfo info) {
     if (info != null) {
       isConstructor = info.isConstructor();
+      isInterface = info.isInterface();
       makesStructs = info.makesStructs();
       makesDicts = info.makesDicts();
-      isInterface = info.isInterface();
 
-      if (makesStructs && !isConstructor) {
+      if (makesStructs && !(isConstructor || isInterface)) {
         reportWarning(CONSTRUCTOR_REQUIRED, "@struct", formatFnName());
       } else if (makesDicts && !isConstructor) {
         reportWarning(CONSTRUCTOR_REQUIRED, "@dict", formatFnName());
       }
 
-      if (typeRegistry.isIObject(fnName, info)) {
+      if (typeRegistry.isTemplatedBuiltin(fnName, info)) {
         // This case is only for setting template types
         // for IObject<KEY1, VALUE1>.
         // In the (old) type system, there should be only one unique template
         // type for <KEY1> and <VALUE1> respectively
-        classTemplateTypeNames = typeRegistry.getIObjectTemplateTypeNames();
+        classTemplateTypeNames = typeRegistry.getTemplateTypesOfBuiltin(fnName);
         typeRegistry.setTemplateTypeNames(classTemplateTypeNames);
       } else {
         // Otherwise, create new template type for
@@ -709,7 +710,7 @@ final class FunctionTypeBuilder {
       fnType = getOrCreateConstructor();
     } else if (isInterface) {
       fnType = typeRegistry.createInterfaceType(
-          fnName, contents.getSourceNode(), classTemplateTypeNames);
+          fnName, contents.getSourceNode(), classTemplateTypeNames, makesStructs);
       if (getScopeDeclaredIn().isGlobal() && !fnName.isEmpty()) {
         typeRegistry.declareType(fnName, fnType.getInstanceType());
       }
@@ -726,7 +727,7 @@ final class FunctionTypeBuilder {
       maybeSetBaseType(fnType);
     }
 
-    if (implementedInterfaces != null) {
+    if (implementedInterfaces != null && fnType.isConstructor()) {
       fnType.setImplementedInterfaces(implementedInterfaces);
     }
 

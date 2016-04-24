@@ -23,6 +23,7 @@ import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.io.Files;
@@ -203,6 +204,10 @@ final class NameAnalyzer implements CompilerPass {
 
     /** Whether this is a call that only affects the class definition */
     boolean onlyAffectsClassDef = false;
+
+    public String toString() {
+      return "NameInformation:" + name;
+    }
   }
 
   /**
@@ -326,6 +331,14 @@ final class NameAnalyzer implements CompilerPass {
           // If we remove object lit keys, then we will need to also
           // create dependency scopes for them.
           break;
+        case Token.EXPR_RESULT:
+          Preconditions.checkState(isAnalyzableObjectDefinePropertiesDefinition(parent.getFirstChild()));
+          replaceWithRhs(containingNode, parent);
+          break;
+        default:
+          throw new IllegalArgumentException(
+              "Unsupported parent node type in JsNameRefNode.remove: "
+                  + Token.name(parent.getType()));
       }
     }
   }
@@ -391,11 +404,9 @@ final class NameAnalyzer implements CompilerPass {
     }
 
     Node getGrandparent() {
-      return node.getParent() == null ? null : node.getParent().getParent();
+      return node.getParent() == null ? null : node.getGrandparent();
     }
   }
-
-
 
   /**
    * Class for nodes that are function calls that may change a function's
@@ -515,6 +526,10 @@ final class NameAnalyzer implements CompilerPass {
         if (ns != null && ns.onlyAffectsClassDef) {
           recordDepScope(n, ns);
         }
+      } else if (isAnalyzableObjectDefinePropertiesDefinition(n)) {
+        Node targetObject = n.getSecondChild();
+        NameInformation ns = createNameInformation(t, targetObject);
+        recordDepScope(n, ns);
       }
     }
 
@@ -561,12 +576,12 @@ final class NameAnalyzer implements CompilerPass {
           //
           // TODO(user) revisit the dependency scope calculation
           // logic.
-          if (parent.getFirstChild().getNext() != n) {
+          if (parent.getSecondChild() != n) {
             recordDepScope(recordNode, ns);
           } else {
             recordDepScope(nameNode, ns);
           }
-        } else if (!(parent.isCall() && parent.getFirstChild() == n)) {
+        } else if (!parent.isCall() || n != parent.getFirstChild()) {
           // The rhs of the assignment is the caller, so it's used by the
           // context. Don't associate it w/ the lhs.
           // FYI: this fixes only the specific case where the assignment is the
@@ -646,8 +661,8 @@ final class NameAnalyzer implements CompilerPass {
       }
 
       // Record assignments and call sites
-      if (n.isAssign()) {
-        Node nameNode = n.getFirstChild();
+      if (n.isAssign() || isAnalyzableObjectDefinePropertiesDefinition(n)) {
+        Node nameNode = n.isAssign() ? n.getFirstChild() : n;
 
         NameInformation ns = createNameInformation(t, nameNode);
         if (ns != null) {
@@ -671,8 +686,8 @@ final class NameAnalyzer implements CompilerPass {
      * Records the assignment of a value to a global name.
      *
      * @param name Fully qualified name
-     * @param node The top node representing the name (GETPROP, NAME, or STRING
-     * [objlit key])
+     * @param node The top node representing the name (GETPROP, NAME, STRING [objlit key],
+     *     or CALL [Object.defineProperties])
      */
     private void recordSet(String name, Node node) {
       JsName jsn = getName(name, true);
@@ -682,7 +697,7 @@ final class NameAnalyzer implements CompilerPass {
 
       // Now, look at all parent names and record that their properties have
       // been written to.
-      if (node.isGetElem()) {
+      if (node.isGetElem() || isAnalyzableObjectDefinePropertiesDefinition(node)) {
         recordWriteOnProperties(name);
       } else if (name.indexOf('.') != -1) {
         recordWriteOnProperties(name.substring(0, name.lastIndexOf('.')));
@@ -782,8 +797,9 @@ final class NameAnalyzer implements CompilerPass {
         for (Node child : n.children()) {
           addSimplifiedChildren(child);
         }
-      } else if (n.isCall() &&
-                 parent.isExprResult()) {
+      } else if (isAnalyzableObjectDefinePropertiesDefinition(n)) {
+        addSimplifiedChildren(n.getLastChild());
+      } else if (n.isCall() && parent.isExprResult()) {
         addSimplifiedChildren(n);
       } else {
         addAllChildren(n);
@@ -841,7 +857,7 @@ final class NameAnalyzer implements CompilerPass {
 
     @Override
     public void visit(NodeTraversal t, Node n, Node parent) {
-      if (!(n.isName() || (NodeUtil.isGet(n) && !parent.isGetProp()))) {
+      if (!n.isName() && (!NodeUtil.isGet(n) || parent.isGetProp())) {
         // This is not a simple or qualified name.
         return;
       }
@@ -1265,7 +1281,7 @@ final class NameAnalyzer implements CompilerPass {
 
     sb.append("ALL NAMES<ul>\n");
     for (JsName node : allNames.values()) {
-      sb.append("<li>" + nameAnchor(node.name) + "<ul>");
+      sb.append("<li>").append(nameAnchor(node.name)).append("<ul>");
       if (!node.prototypeNames.isEmpty()) {
         sb.append("<li>PROTOTYPES: ");
         Iterator<String> protoIter = node.prototypeNames.iterator();
@@ -1315,7 +1331,7 @@ final class NameAnalyzer implements CompilerPass {
   }
 
   private static void appendListItem(StringBuilder sb, String text) {
-    sb.append("<li>" + text + "</li>\n");
+    sb.append("<li>").append(text).append("</li>\n");
   }
 
   private static String nameLink(String name) {
@@ -1499,6 +1515,12 @@ final class NameAnalyzer implements CompilerPass {
         } else {
           return null;
         }
+      } else if (isAnalyzableObjectDefinePropertiesDefinition(rootNameNode)) {
+        Node target = rootNameNode.getSecondChild();
+        if (!target.isQualifiedName()) {
+          return null;
+        }
+        rootNameNode = target;
       } else {
         break;
       }
@@ -1788,7 +1810,7 @@ final class NameAnalyzer implements CompilerPass {
       for (int i = 0; i < replacements.size() - 1; i++) {
         newReplacements.addAll(getSideEffectNodes(replacements.get(i)));
       }
-      Node valueExpr = replacements.get(replacements.size() - 1);
+      Node valueExpr = Iterables.getLast(replacements);
       valueExpr.detachFromParent();
       newReplacements.add(valueExpr);
       changeProxy.replaceWith(
@@ -1894,7 +1916,7 @@ final class NameAnalyzer implements CompilerPass {
         return parent.getFirstChild() == n;
 
       case Token.FOR:
-        return parent.getFirstChild().getNext() == n;
+        return parent.getSecondChild() == n;
 
       case Token.DO:
         return parent.getLastChild() == n;
@@ -1937,6 +1959,13 @@ final class NameAnalyzer implements CompilerPass {
       case Token.FUNCTION:
         // function nodes have no RHS
         return ImmutableList.of();
+      case Token.CALL:
+        {
+          // In our analyzable case, only the last argument to Object.defineProperties
+          // (the object literal) can have side-effects
+          Preconditions.checkState(isAnalyzableObjectDefinePropertiesDefinition(n));
+          return ImmutableList.of(n.getLastChild());
+        }
       case Token.NAME:
         {
           // parent is a var node.  RHS is the first child
@@ -1966,5 +1995,18 @@ final class NameAnalyzer implements CompilerPass {
       default:
         throw new IllegalArgumentException("AstChangeProxy::getRhs " + n);
     }
+  }
+
+  /**
+   * Check if {@code n} is an Object.defineProperties definition
+   * that is static enough for this pass to understand and remove.
+   */
+  private static boolean isAnalyzableObjectDefinePropertiesDefinition(Node n) {
+    // TODO(blickly): Move this code to CodingConvention so that
+    // it's possible to define alternate ways of defining properties.
+    return NodeUtil.isObjectDefinePropertiesDefinition(n)
+        && n.getParent().isExprResult()
+        && n.getFirstChild().getNext().isQualifiedName()
+        && n.getLastChild().isObjectLit();
   }
 }

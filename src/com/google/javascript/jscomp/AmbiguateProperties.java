@@ -149,6 +149,11 @@ class AmbiguateProperties implements CompilerPass {
       addInvalidatingType(mis.typeB);
     }
 
+    for (TypeMismatch mis : compiler.getImplicitInterfaceUses()) {
+      addInvalidatingType(mis.typeA);
+      addInvalidatingType(mis.typeB);
+    }
+
     externedNames = compiler.getExternProperties();
   }
 
@@ -226,7 +231,7 @@ class AmbiguateProperties implements CompilerPass {
     int numNewPropertyNames = coloring.color();
 
     // Generate new names for the properties that will be renamed.
-    NameGenerator nameGen = new NameGenerator(
+    NameGenerator nameGen = new DefaultNameGenerator(
         reservedNames.build(), "", reservedCharacters);
     String[] colorMap = new String[numNewPropertyNames];
     for (int i = 0; i < numNewPropertyNames; ++i) {
@@ -429,9 +434,8 @@ class AmbiguateProperties implements CompilerPass {
     }
 
     @Override
-    @SuppressWarnings("unchecked")
-    public <A extends Annotation> A getAnnotation() {
-      return (A) annotation;
+    public Annotation getAnnotation() {
+      return annotation;
     }
 
     @Override
@@ -446,7 +450,7 @@ class AmbiguateProperties implements CompilerPass {
     public void visit(NodeTraversal t, Node n, Node parent) {
       switch (n.getType()) {
         case Token.GETPROP: {
-          Node propNode = n.getFirstChild().getNext();
+          Node propNode = n.getSecondChild();
           JSType jstype = getJSType(n.getFirstChild());
           maybeMarkCandidate(propNode, jstype);
           break;

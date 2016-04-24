@@ -26,9 +26,11 @@ import static com.google.javascript.rhino.jstype.JSTypeNative.REGEXP_TYPE;
 import static com.google.javascript.rhino.jstype.JSTypeNative.STRING_TYPE;
 import static com.google.javascript.rhino.jstype.JSTypeNative.UNKNOWN_TYPE;
 import static com.google.javascript.rhino.jstype.JSTypeNative.VOID_TYPE;
+import static java.lang.Integer.MAX_VALUE;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import com.google.javascript.jscomp.CodingConvention.SubclassRelationship;
 import com.google.javascript.jscomp.CodingConvention.SubclassType;
 import com.google.javascript.jscomp.type.ReverseAbstractInterpreter;
@@ -51,7 +53,9 @@ import com.google.javascript.rhino.jstype.TernaryValue;
 
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -137,10 +141,6 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
 
   static final DiagnosticType ENUM_DUP = DiagnosticType.error("JSC_ENUM_DUP",
       "enum element {0} already defined");
-
-  static final DiagnosticType ENUM_NOT_CONSTANT =
-      DiagnosticType.warning("JSC_ENUM_NOT_CONSTANT",
-          "enum key {0} must be in ALL_CAPS");
 
   static final DiagnosticType INVALID_INTERFACE_MEMBER_DECLARATION =
       DiagnosticType.warning(
@@ -240,12 +240,12 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
 
   static final DiagnosticType ILLEGAL_PROPERTY_CREATION =
       DiagnosticType.warning("JSC_ILLEGAL_PROPERTY_CREATION",
-                             "Cannot add a property to a struct instance " +
-                             "after it is constructed.");
+          "Cannot add a property to a struct instance after it is constructed."
+          + " (If you already declared the property, make sure to give it a type.)");
 
   static final DiagnosticType ILLEGAL_OBJLIT_KEY =
       DiagnosticType.warning(
-          "ILLEGAL_OBJLIT_KEY",
+          "JSC_ILLEGAL_OBJLIT_KEY",
           "Illegal key, the object literal is a {0}");
 
   static final DiagnosticType NON_STRINGIFIABLE_OBJECT_KEY =
@@ -270,7 +270,6 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       FUNCTION_MASKS_VARIABLE,
       MULTIPLE_VAR_DEF,
       ENUM_DUP,
-      ENUM_NOT_CONSTANT,
       INVALID_INTERFACE_MEMBER_DECLARATION,
       INTERFACE_METHOD_NOT_EMPTY,
       CONFLICTING_EXTENDED_TYPE,
@@ -486,7 +485,6 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         // way.
         if (!expr.isObjectLit()) {
           validator.expectCanCast(t, n, castType, exprType);
-          validator.expectCastIsNecessary(t, n, castType, exprType);
         }
         ensureTyped(t, n, castType);
 
@@ -786,7 +784,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
 
       case Token.FOR:
         if (NodeUtil.isForIn(n)) {
-          Node obj = n.getChildAtIndex(1);
+          Node obj = n.getSecondChild();
           if (getJSType(obj).isStruct()) {
             report(t, obj, IN_USED_WITH_STRUCT);
           }
@@ -1495,7 +1493,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     }
   }
 
-  private SuggestionPair getClosestPropertySuggestion(
+  private static SuggestionPair getClosestPropertySuggestion(
       JSType objectType, String propName) {
     return null;
   }
@@ -1583,8 +1581,8 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
    * @param interfaceType The super interface that is being visited
    */
   private void checkInterfaceConflictProperties(NodeTraversal t, Node n,
-      String functionName, HashMap<String, ObjectType> properties,
-      HashMap<String, ObjectType> currentProperties,
+      String functionName, Map<String, ObjectType> properties,
+      Map<String, ObjectType> currentProperties,
       ObjectType interfaceType) {
     ObjectType implicitProto = interfaceType.getImplicitPrototype();
     Set<String> currentPropertyNames;
@@ -1675,8 +1673,8 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         // Only check when extending more than one interfaces
         HashMap<String, ObjectType> properties
             = new HashMap<>();
-        HashMap<String, ObjectType> currentProperties
-            = new HashMap<>();
+        LinkedHashMap<String, ObjectType> currentProperties
+            = new LinkedHashMap<>();
         for (ObjectType interfaceType : functionType.getExtendedInterfaces()) {
           currentProperties.clear();
           checkInterfaceConflictProperties(t, n, functionPrivateName,
@@ -1691,7 +1689,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         for (int i = 0; i < loopPath.size() - 1; i++) {
           strPath += loopPath.get(i).getDisplayName() + " -> ";
         }
-        strPath += loopPath.get(loopPath.size() - 1).getDisplayName();
+        strPath += Iterables.getLast(loopPath).getDisplayName();
         compiler.report(t.makeError(n, INTERFACE_EXTENDS_LOOP,
             loopPath.get(0).getDisplayName(), strPath));
       }
@@ -2102,6 +2100,16 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       return isStringifiable(((NamedType) type).getReferencedType());
     }
 
+    // For union type every alternate must be stringifiable.
+    if (type.isUnionType()) {
+      for (JSType alternateType : type.toMaybeUnionType().getAlternates()) {
+        if (!isStringifiable(alternateType)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
     // Handle interfaces and classes.
     if (type.isObject()) {
       ObjectType objectType = type.toMaybeObjectType();
@@ -2113,16 +2121,6 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       }
       // This is user-defined class so check if it has custom toString() method.
       return classHasToString(objectType);
-    }
-
-    // For union type every alternate must be stringifiable.
-    if (type.isUnionType()) {
-      for (JSType alternateType : type.toMaybeUnionType().getAlternates()) {
-        if (!isStringifiable(alternateType)) {
-          return false;
-        }
-      }
-      return true;
     }
     return false;
   }

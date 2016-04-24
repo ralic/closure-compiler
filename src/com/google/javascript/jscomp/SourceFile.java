@@ -16,6 +16,7 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.base.Strings.isNullOrEmpty;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.common.annotations.GwtIncompatible;
@@ -52,6 +53,7 @@ import java.util.zip.ZipFile;
  */
 public class SourceFile implements StaticSourceFile, Serializable {
   private static final long serialVersionUID = 1L;
+  private static final String UTF8_BOM = "\uFEFF";
 
   /** A JavaScript source code provider.  The value should
    * be cached so that the source text stays consistent throughout a single
@@ -81,6 +83,12 @@ public class SourceFile implements StaticSourceFile, Serializable {
 
   private String code = null;
 
+  static final DiagnosticType DUPLICATE_ZIP_CONTENTS = DiagnosticType.warning(
+      "JSC_DUPLICATE_ZIP_CONTENTS",
+      "Two zip entries containing the same relative path.\n"
+      + "Entry 1: {0}\n"
+      + "Entry 2: {1}");
+
   /**
    * Construct a new abstract source file.
    *
@@ -89,7 +97,7 @@ public class SourceFile implements StaticSourceFile, Serializable {
    *     appear in warning messages emitted by the compiler.
    */
   public SourceFile(String fileName) {
-    if (fileName == null || fileName.isEmpty()) {
+    if (isNullOrEmpty(fileName)) {
       throw new IllegalArgumentException("a source must have a name");
     }
 
@@ -117,7 +125,6 @@ public class SourceFile implements StaticSourceFile, Serializable {
     return lineOffsets.length;
   }
 
-
   private void findLineOffsets() {
     if (lineOffsets != null) {
       return;
@@ -135,6 +142,9 @@ public class SourceFile implements StaticSourceFile, Serializable {
     }
   }
 
+  private void resetLineOffsets() {
+    lineOffsets = null;
+  }
 
   //////////////////////////////////////////////////////////////////////////////
   // Implementation
@@ -168,8 +178,17 @@ public class SourceFile implements StaticSourceFile, Serializable {
     return code;
   }
 
-  private void setCode(String sourceCode) {
-    code = sourceCode;
+  void setCode(String sourceCode) {
+    this.setCode(sourceCode, false);
+  }
+
+  void setCode(String sourceCode, boolean removeUtf8Bom) {
+    if (removeUtf8Bom && sourceCode != null && sourceCode.startsWith(UTF8_BOM)) {
+      code = sourceCode.substring(UTF8_BOM.length());
+    } else {
+      code = sourceCode;
+    }
+    resetLineOffsets();
   }
 
   public String getOriginalPath() {
@@ -338,7 +357,11 @@ public class SourceFile implements StaticSourceFile, Serializable {
 
       while (zipEntries.hasMoreElements()) {
         ZipEntry zipEntry = zipEntries.nextElement();
-        URL zipEntryUrl = new URL("jar:file:" + absoluteZipPath + "!/" + zipEntry.getName());
+        String entryName = zipEntry.getName();
+        if (!entryName.endsWith(".js")) { // Only accept js files
+          continue;
+        }
+        URL zipEntryUrl = new URL("jar:file:" + absoluteZipPath + "!/" + entryName);
         sourceFiles.add(
             builder()
                 .withCharset(inputCharset)
@@ -543,7 +566,9 @@ public class SourceFile implements StaticSourceFile, Serializable {
 
       if (cachedCode == null) {
         cachedCode = Files.toString(file, this.getCharset());
-        super.setCode(cachedCode);
+        super.setCode(cachedCode, this.getCharset() == StandardCharsets.UTF_8);
+        // Byte Order Mark can be removed by setCode
+        cachedCode = super.getCode();
       }
       return cachedCode;
     }
@@ -636,7 +661,9 @@ public class SourceFile implements StaticSourceFile, Serializable {
 
       if (cachedCode == null) {
         cachedCode = Resources.toString(url, this.getCharset());
-        super.setCode(cachedCode);
+        super.setCode(cachedCode, this.getCharset() == StandardCharsets.UTF_8);
+        // Byte Order Mark can be removed by setCode
+        cachedCode = super.getCode();
       }
       return cachedCode;
     }

@@ -15,14 +15,18 @@
  */
 package com.google.javascript.jscomp;
 
+import static com.google.common.truth.Truth.assertThat;
+import static com.google.javascript.jscomp.TypeValidator.TYPE_MISMATCH_WARNING;
+
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
+
+import java.util.Set;
 
 public class Es6RewriteDestructuringTest extends CompilerTestCase {
 
   @Override
   public void setUp() {
     setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
-    enableAstValidation(true);
     disableTypeCheck();
     runTypeCheckAfterProcessing = true;
   }
@@ -51,6 +55,7 @@ public class Es6RewriteDestructuringTest extends CompilerTestCase {
             "var $jscomp$destructuring$var0 = foo();",
             "var b = $jscomp$destructuring$var0.a;",
             "var d = $jscomp$destructuring$var0.c;"));
+    assertThat(getInjectedLibraries()).isEmpty();
 
     test(
         "var {a,b} = foo();",
@@ -60,7 +65,21 @@ public class Es6RewriteDestructuringTest extends CompilerTestCase {
             "var b = $jscomp$destructuring$var0.b;"));
 
     test(
-        "var x; ({a: x}) = foo();",
+        "let {a,b} = foo();",
+        LINE_JOINER.join(
+            "var $jscomp$destructuring$var0 = foo();",
+            "let a = $jscomp$destructuring$var0.a;",
+            "let b = $jscomp$destructuring$var0.b;"));
+
+    test(
+        "const {a,b} = foo();",
+        LINE_JOINER.join(
+            "/** @const */ var $jscomp$destructuring$var0 = foo();",
+            "const a = $jscomp$destructuring$var0.a;",
+            "const b = $jscomp$destructuring$var0.b;"));
+
+    test(
+        "var x; ({a: x} = foo());",
         LINE_JOINER.join(
             "var x;",
             "var $jscomp$destructuring$var0 = foo();",
@@ -100,7 +119,7 @@ public class Es6RewriteDestructuringTest extends CompilerTestCase {
         "var $jscomp$destructuring$var0 = foo(); var b = $jscomp$destructuring$var0[a];");
 
     test(
-        "({[a]: b}) = foo();",
+        "({[a]: b} = foo());",
         "var $jscomp$destructuring$var0 = foo(); b = $jscomp$destructuring$var0[a];");
 
     test(
@@ -169,11 +188,13 @@ public class Es6RewriteDestructuringTest extends CompilerTestCase {
         LINE_JOINER.join(
             "function f($jscomp$destructuring$var0) {",
             "  var $jscomp$destructuring$var1 = $jscomp$destructuring$var0",
-            "  var $jscomp$destructuring$var2 = $jscomp$destructuring$var1.k;",
-            "  var x = $jscomp$destructuring$var2[0];",
-            "  var y = $jscomp$destructuring$var2[1];",
-            "  var z = $jscomp$destructuring$var2[2];",
+            "  var $jscomp$destructuring$var2 =",
+            "      $jscomp.makeIterator($jscomp$destructuring$var1.k);",
+            "  var x = $jscomp$destructuring$var2.next().value;",
+            "  var y = $jscomp$destructuring$var2.next().value;",
+            "  var z = $jscomp$destructuring$var2.next().value;",
             "}"));
+    assertThat(getInjectedLibraries()).containsExactly("es6_runtime");
 
     test(
         "function f({key: x = 5}) {}",
@@ -231,27 +252,27 @@ public class Es6RewriteDestructuringTest extends CompilerTestCase {
     test(
         "var [x,y] = z();",
         LINE_JOINER.join(
-            "var $jscomp$destructuring$var0 = z();",
-            "var x = $jscomp$destructuring$var0[0];",
-            "var y = $jscomp$destructuring$var0[1];"));
+            "var $jscomp$destructuring$var0 = $jscomp.makeIterator(z());",
+            "var x = $jscomp$destructuring$var0.next().value;",
+            "var y = $jscomp$destructuring$var0.next().value;"));
 
     test(
         "var x,y;\n" + "[x,y] = z();",
         LINE_JOINER.join(
             "var x,y;",
-            "var $jscomp$destructuring$var0 = z();",
-            "x = $jscomp$destructuring$var0[0];",
-            "y = $jscomp$destructuring$var0[1];"));
+            "var $jscomp$destructuring$var0 = $jscomp.makeIterator(z());",
+            "x = $jscomp$destructuring$var0.next().value;",
+            "y = $jscomp$destructuring$var0.next().value;"));
 
     test(
         "var [a,b] = c();" + "var [x,y] = z();",
         LINE_JOINER.join(
-            "var $jscomp$destructuring$var0 = c();",
-            "var a = $jscomp$destructuring$var0[0];",
-            "var b = $jscomp$destructuring$var0[1];",
-            "var $jscomp$destructuring$var1 = z();",
-            "var x = $jscomp$destructuring$var1[0];",
-            "var y = $jscomp$destructuring$var1[1];"));
+            "var $jscomp$destructuring$var0 = $jscomp.makeIterator(c());",
+            "var a = $jscomp$destructuring$var0.next().value;",
+            "var b = $jscomp$destructuring$var0.next().value;",
+            "var $jscomp$destructuring$var1 = $jscomp.makeIterator(z());",
+            "var x = $jscomp$destructuring$var1.next().value;",
+            "var y = $jscomp$destructuring$var1.next().value;"));
   }
 
   public void testArrayDestructuringDefaultValues() {
@@ -259,38 +280,43 @@ public class Es6RewriteDestructuringTest extends CompilerTestCase {
         "var a; [a=1] = b();",
         LINE_JOINER.join(
             "var a;",
-            "var $jscomp$destructuring$var0 = b()",
-            "a = ($jscomp$destructuring$var0[0] === undefined) ?",
+            "var $jscomp$destructuring$var0 = $jscomp.makeIterator(b())",
+            "var $jscomp$destructuring$var1 = $jscomp$destructuring$var0.next().value",
+            "a = ($jscomp$destructuring$var1 === undefined) ?",
             "    1 :",
-            "    $jscomp$destructuring$var0[0];"));
+            "    $jscomp$destructuring$var1;"));
 
     test(
         "var [a=1] = b();",
         LINE_JOINER.join(
-            "var $jscomp$destructuring$var0 = b()",
-            "var a = ($jscomp$destructuring$var0[0] === undefined) ?",
+            "var $jscomp$destructuring$var0 = $jscomp.makeIterator(b())",
+            "var $jscomp$destructuring$var1 = $jscomp$destructuring$var0.next().value",
+            "var a = ($jscomp$destructuring$var1 === undefined) ?",
             "    1 :",
-            "    $jscomp$destructuring$var0[0];"));
+            "    $jscomp$destructuring$var1;"));
 
     test(
         "var [a, b=1, c] = d();",
         LINE_JOINER.join(
-            "var $jscomp$destructuring$var0=d();",
-            "var a = $jscomp$destructuring$var0[0];",
-            "var b = ($jscomp$destructuring$var0[1] === undefined) ?",
+            "var $jscomp$destructuring$var0=$jscomp.makeIterator(d());",
+            "var a = $jscomp$destructuring$var0.next().value;",
+            "var $jscomp$destructuring$var1 = $jscomp$destructuring$var0.next().value;",
+            "var b = ($jscomp$destructuring$var1 === undefined) ?",
             "    1 :",
-            "    $jscomp$destructuring$var0[1];",
-            "var c=$jscomp$destructuring$var0[2]"));
+            "    $jscomp$destructuring$var1;",
+            "var c=$jscomp$destructuring$var0.next().value"));
 
     test(
         "var a; [[a] = ['b']] = [];",
         LINE_JOINER.join(
             "var a;",
-            "var $jscomp$destructuring$var0 = [];",
-            "var $jscomp$destructuring$var1 = ($jscomp$destructuring$var0[0] === undefined)",
-            "    ? ['b']",
-            "    : $jscomp$destructuring$var0[0];",
-            "a = $jscomp$destructuring$var1[0]"));
+            "var $jscomp$destructuring$var0 = $jscomp.makeIterator([]);",
+            "var $jscomp$destructuring$var1 = $jscomp$destructuring$var0.next().value;",
+            "var $jscomp$destructuring$var2 = $jscomp.makeIterator(",
+            "    $jscomp$destructuring$var1 === undefined",
+            "        ? ['b']",
+            "        : $jscomp$destructuring$var1);",
+            "a = $jscomp$destructuring$var2.next().value"));
   }
 
   public void testArrayDestructuringParam() {
@@ -298,9 +324,9 @@ public class Es6RewriteDestructuringTest extends CompilerTestCase {
         "function f([x,y]) { use(x); use(y); }",
         LINE_JOINER.join(
             "function f($jscomp$destructuring$var0) {",
-            "  var $jscomp$destructuring$var1 = $jscomp$destructuring$var0;",
-            "  var x = $jscomp$destructuring$var1[0];",
-            "  var y = $jscomp$destructuring$var1[1];",
+            "  var $jscomp$destructuring$var1 = $jscomp.makeIterator($jscomp$destructuring$var0);",
+            "  var x = $jscomp$destructuring$var1.next().value;",
+            "  var y = $jscomp$destructuring$var1.next().value;",
             "  use(x);",
             "  use(y);",
             "}"));
@@ -309,9 +335,10 @@ public class Es6RewriteDestructuringTest extends CompilerTestCase {
         "function f([x, , y]) { use(x); use(y); }",
         LINE_JOINER.join(
             "function f($jscomp$destructuring$var0) {",
-            "  var $jscomp$destructuring$var1 = $jscomp$destructuring$var0;",
-            "  var x = $jscomp$destructuring$var1[0];",
-            "  var y = $jscomp$destructuring$var1[2];",
+            "  var $jscomp$destructuring$var1 = $jscomp.makeIterator($jscomp$destructuring$var0);",
+            "  var x = $jscomp$destructuring$var1.next().value;",
+            "  $jscomp$destructuring$var1.next();",
+            "  var y = $jscomp$destructuring$var1.next().value;",
             "  use(x);",
             "  use(y);",
             "}"));
@@ -321,45 +348,57 @@ public class Es6RewriteDestructuringTest extends CompilerTestCase {
     test(
         "let [one, ...others] = f();",
         LINE_JOINER.join(
-            "var $jscomp$destructuring$var0 = f();",
-            "let one = $jscomp$destructuring$var0[0];",
-            "let others = [].slice.call($jscomp$destructuring$var0, 1);"));
+            "var $jscomp$destructuring$var0 = $jscomp.makeIterator(f());",
+            "let one = $jscomp$destructuring$var0.next().value;",
+            "let others = $jscomp.arrayFromIterator($jscomp$destructuring$var0);"));
+    assertThat(getInjectedLibraries()).containsExactly("es6_runtime");
 
     test(
         "function f([first, ...rest]) {}",
         LINE_JOINER.join(
             "function f($jscomp$destructuring$var0) {",
-            "  var $jscomp$destructuring$var1 = $jscomp$destructuring$var0;",
-            "  var first = $jscomp$destructuring$var1[0];",
-            "  var rest = [].slice.call($jscomp$destructuring$var1, 1);",
+            "  var $jscomp$destructuring$var1 = $jscomp.makeIterator($jscomp$destructuring$var0);",
+            "  var first = $jscomp$destructuring$var1.next().value;",
+            "  var rest = $jscomp.arrayFromIterator($jscomp$destructuring$var1);",
             "}"));
+  }
+
+  public void testArrayDestructuringArguments() {
+    test(
+    "function f() { var [x, y] = arguments; }",
+    LINE_JOINER.join(
+        "function f() {",
+        "  var $jscomp$destructuring$var0 = $jscomp.makeIterator(arguments);",
+        "  var x = $jscomp$destructuring$var0.next().value;",
+        "  var y = $jscomp$destructuring$var0.next().value;",
+        "}"));
   }
 
   public void testMixedDestructuring() {
     test(
         "var [a,{b,c}] = foo();",
         LINE_JOINER.join(
-            "var $jscomp$destructuring$var0 = foo();",
-            "var a = $jscomp$destructuring$var0[0];",
-            "var $jscomp$destructuring$var1 = $jscomp$destructuring$var0[1];",
-            "var b=$jscomp$destructuring$var1.b;",
-            "var c=$jscomp$destructuring$var1.c"));
+            "var $jscomp$destructuring$var0 = $jscomp.makeIterator(foo());",
+            "var a = $jscomp$destructuring$var0.next().value;",
+            "var $jscomp$destructuring$var1 = $jscomp$destructuring$var0.next().value;",
+            "var b = $jscomp$destructuring$var1.b;",
+            "var c = $jscomp$destructuring$var1.c"));
 
     test(
         "var {a,b:[c,d]} = foo();",
         LINE_JOINER.join(
             "var $jscomp$destructuring$var0 = foo();",
             "var a = $jscomp$destructuring$var0.a;",
-            "var $jscomp$destructuring$var1 = $jscomp$destructuring$var0.b;",
-            "var c = $jscomp$destructuring$var1[0];",
-            "var d = $jscomp$destructuring$var1[1]"));
+            "var $jscomp$destructuring$var1 = $jscomp.makeIterator($jscomp$destructuring$var0.b);",
+            "var c = $jscomp$destructuring$var1.next().value;",
+            "var d = $jscomp$destructuring$var1.next().value"));
   }
 
   public void testDestructuringForOf() {
     test(
         "for ({x} of y) { console.log(x); }",
         LINE_JOINER.join(
-            "for (let $jscomp$destructuring$var0 of y) {",
+            "for (var $jscomp$destructuring$var0 of y) {",
             "   var $jscomp$destructuring$var1 = $jscomp$destructuring$var0;",
             "   x = $jscomp$destructuring$var1.x;",
             "   console.log(x);",
@@ -379,7 +418,7 @@ public class Es6RewriteDestructuringTest extends CompilerTestCase {
   }
 
   public void testDefaultParameters() {
-    enableTypeCheck(CheckLevel.WARNING);
+    enableTypeCheck();
     test(
         "function f(zero, one = 1, two = 2) {}; f(1); f(1,2,3);",
         LINE_JOINER.join(
@@ -417,7 +456,7 @@ public class Es6RewriteDestructuringTest extends CompilerTestCase {
   }
 
   public void testDefaultUndefinedParameters() {
-    enableTypeCheck(CheckLevel.WARNING);
+    enableTypeCheck();
 
     test("function f(zero, one=undefined) {}", "function f(zero, one) {}");
 
@@ -434,5 +473,85 @@ public class Es6RewriteDestructuringTest extends CompilerTestCase {
     test(
         "function f(zero, one=void g()) {}",
         "function f(zero, one) {   one = (one === undefined) ? void g() : one; }");
+  }
+
+  public void testTypeCheck() {
+    enableTypeCheck();
+
+    test(
+        "/** @param {{x: number}} obj */ function f({x}) {}",
+        LINE_JOINER.join(
+            "/** @param {{x: number}} obj */",
+            "function f(obj) {",
+            "  var $jscomp$destructuring$var0 = obj;",
+            "  var x = $jscomp$destructuring$var0.x;",
+            "}"));
+
+    testWarning(
+        LINE_JOINER.join(
+            "/** @param {{x: number}} obj */",
+            "function f({x}) {}",
+          "f({ x: 'str'});"),
+        TYPE_MISMATCH_WARNING);
+
+    test(
+        LINE_JOINER.join(
+            "/** @param {{x: number}} obj */",
+            "var f = function({x}) {}"),
+        LINE_JOINER.join(
+            "/** @param {{x: number}} obj */",
+            "var f = function(obj) {",
+            "  var $jscomp$destructuring$var0 = obj;",
+            "  var x = $jscomp$destructuring$var0.x;",
+            "}"));
+
+    test(
+        LINE_JOINER.join(
+            "/** @param {{x: number}} obj */",
+            "f = function({x}) {}"),
+        LINE_JOINER.join(
+            "/** @param {{x: number}} obj */",
+            "f = function(obj) {",
+            "  var $jscomp$destructuring$var0 = obj;",
+            "  var x = $jscomp$destructuring$var0.x;",
+            "}"));
+
+    test(
+        LINE_JOINER.join(
+            "/** @param {{x: number}} obj */",
+            "ns.f = function({x}) {}"),
+        LINE_JOINER.join(
+            "/** @param {{x: number}} obj */",
+            "ns.f = function(obj) {",
+            "  var $jscomp$destructuring$var0 = obj;",
+            "  var x = $jscomp$destructuring$var0.x;",
+            "}"));
+  }
+
+  public void testTypeCheck_inlineAnnotations() {
+    enableTypeCheck();
+
+    test(
+        "function f(/** {x: number} */ {x}) {}",
+        LINE_JOINER.join(
+            "function f(/** {x: number} */ $jscomp$destructuring$var0) {",
+            "  var $jscomp$destructuring$var1 = $jscomp$destructuring$var0;",
+            "  var x = $jscomp$destructuring$var1.x;",
+            "}"));
+
+    testWarning(
+        LINE_JOINER.join(
+            "function f(/** {x: number} */ {x}) {}",
+            "f({ x: 'str'});"),
+        TYPE_MISMATCH_WARNING);
+  }
+
+  @Override
+  protected Compiler createCompiler() {
+    return new NoninjectingCompiler();
+  }
+
+  protected Set<String> getInjectedLibraries() {
+    return ((NoninjectingCompiler) getLastCompiler()).injected;
   }
 }

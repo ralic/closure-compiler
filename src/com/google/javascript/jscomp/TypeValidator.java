@@ -16,6 +16,7 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.base.Strings.nullToEmpty;
 import static com.google.javascript.rhino.jstype.JSTypeNative.ARRAY_TYPE;
 import static com.google.javascript.rhino.jstype.JSTypeNative.BOOLEAN_TYPE;
 import static com.google.javascript.rhino.jstype.JSTypeNative.NO_OBJECT_TYPE;
@@ -65,7 +66,6 @@ class TypeValidator {
   private final JSTypeRegistry typeRegistry;
   private final JSType allValueTypes;
   private final JSType nullOrUndefined;
-  private final boolean reportUnnecessaryCasts;
 
   // TODO(nicksantos): Provide accessors to better filter the list of type
   // mismatches. For example, if we pass (Cake|null) where only Cake is
@@ -158,8 +158,6 @@ class TypeValidator {
         STRING_TYPE, NUMBER_TYPE, BOOLEAN_TYPE, NULL_TYPE, VOID_TYPE);
     this.nullOrUndefined = typeRegistry.createUnionType(
         NULL_TYPE, VOID_TYPE);
-    this.reportUnnecessaryCasts = ((Compiler) compiler).getOptions().enables(
-        DiagnosticGroups.UNNECESSARY_CASTS);
   }
 
   /**
@@ -378,7 +376,7 @@ class TypeValidator {
    */
   void expectIndexMatch(NodeTraversal t, Node n, JSType objType,
                         JSType indexType) {
-    Preconditions.checkState(n.isGetElem());
+    Preconditions.checkState(n.isGetElem(), n);
     Node indexNode = n.getLastChild();
     if (objType.isStruct()) {
       report(JSError.make(indexNode,
@@ -392,7 +390,7 @@ class TypeValidator {
           .getTemplateTypeMap()
           .hasTemplateKey(typeRegistry.getObjectIndexKey())) {
         expectCanAssignTo(t, indexNode, indexType, dereferenced
-            .getTemplateTypeMap().getTemplateType(typeRegistry.getObjectIndexKey()),
+            .getTemplateTypeMap().getResolvedTemplateType(typeRegistry.getObjectIndexKey()),
             "restricted index type");
       } else if (dereferenced != null && dereferenced.isArrayType()) {
         expectNumber(t, indexNode, indexType, "array access");
@@ -547,33 +545,6 @@ class TypeValidator {
   }
 
   /**
-   * Expect that casting type to castType is necessary. A cast is considered
-   * unnecessary if type is a subtype of castType, or identical to castType.
-   *
-   * @param t The node traversal.
-   * @param n The node where warnings should point.
-   * @param castType The type being cast to.
-   * @param type The type being cast from.
-   */
-  void expectCastIsNecessary(NodeTraversal t, Node n, JSType castType, JSType type) {
-    if (!reportUnnecessaryCasts) {
-      return;
-    }
-
-    // If either type is "no resolved type" don't report an error, because we can't
-    // know if the cast is necessary or not.
-    if (type.isNoResolvedType() || castType.isNoResolvedType()) {
-      return;
-    }
-
-    if (type.isEquivalentTo(castType) ||
-        (type.isSubtype(castType) && !castType.isSubtype(type))) {
-      report(t.makeError(n, UNNECESSARY_CAST,
-          type.toString(), castType.toString()));
-    }
-  }
-
-  /**
    * Expect that the given variable has not been declared with a type.
    *
    * @param sourceName The name of the source file we're in.
@@ -683,11 +654,17 @@ class TypeValidator {
     if (propSlot == null) {
       // Not implemented
       String sourceName = n.getSourceFileName();
-      sourceName = sourceName == null ? "" : sourceName;
-      registerMismatch(instance, implementedInterface,
-          report(JSError.make(n,
-          INTERFACE_METHOD_NOT_IMPLEMENTED,
-          prop, implementedInterface.toString(), instance.toString())));
+      sourceName = nullToEmpty(sourceName);
+      registerMismatch(
+          instance,
+          implementedInterface,
+          report(
+              JSError.make(
+                  n,
+                  INTERFACE_METHOD_NOT_IMPLEMENTED,
+                  prop,
+                  implementedInterface.toString(),
+                  instance.toString())));
     } else {
       Node propNode = propSlot.getDeclaration() == null ?
           null : propSlot.getDeclaration().getNode();

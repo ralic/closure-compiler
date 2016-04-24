@@ -19,6 +19,7 @@ package com.google.javascript.jscomp;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.ImmutableBiMap;
+import com.google.common.primitives.Booleans;
 import com.google.debugging.sourcemap.Base64;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.rhino.IR;
@@ -95,12 +96,6 @@ class ReplaceIdGenerators implements CompilerPass {
 
   private final boolean generatePseudoNames;
 
-  public static final RenamingMap UNIQUE = new UniqueRenamingToken();
-
-  private static class UniqueRenamingToken implements RenamingMap {
-    @Override public String get(String value) { return null; }
-  }
-
   public ReplaceIdGenerators(
       AbstractCompiler compiler, Map<String, RenamingMap> idGens,
       boolean generatePseudoNames,
@@ -145,16 +140,16 @@ class ReplaceIdGenerators implements CompilerPass {
     RenameStrategy getRenameStrategy();
   }
 
-  private static class ObfuscatedNameSuppier implements NameSupplier {
+  private static class ObfuscatedNameSupplier implements NameSupplier {
     private final NameGenerator generator;
     private final Map<String, String> previousMappings;
     private RenameStrategy renameStrategy;
 
-    public ObfuscatedNameSuppier(
+    public ObfuscatedNameSupplier(
         RenameStrategy renameStrategy, BiMap<String, String> previousMappings) {
       this.previousMappings = previousMappings.inverse();
       this.generator =
-          new NameGenerator(previousMappings.keySet(), "", null);
+          new DefaultNameGenerator(previousMappings.keySet(), "", null);
       this.renameStrategy = renameStrategy;
     }
 
@@ -173,11 +168,11 @@ class ReplaceIdGenerators implements CompilerPass {
     }
   }
 
-  private static class PseudoNameSuppier implements NameSupplier {
+  private static class PseudoNameSupplier implements NameSupplier {
     private int counter = 0;
     private RenameStrategy renameStrategy;
 
-    public PseudoNameSuppier(RenameStrategy renameStrategy) {
+    public PseudoNameSupplier(RenameStrategy renameStrategy) {
       this.renameStrategy = renameStrategy;
     }
 
@@ -232,9 +227,9 @@ class ReplaceIdGenerators implements CompilerPass {
     if (renameStrategy == RenameStrategy.STABLE) {
       return new StableNameSupplier();
     } else if (generatePseudoNames) {
-      return new PseudoNameSuppier(renameStrategy);
+      return new PseudoNameSupplier(renameStrategy);
     } else {
-      return new ObfuscatedNameSuppier(renameStrategy, previousMappings);
+      return new ObfuscatedNameSupplier(renameStrategy, previousMappings);
     }
   }
 
@@ -254,10 +249,11 @@ class ReplaceIdGenerators implements CompilerPass {
       }
 
       int numGeneratorAnnotations =
-          (doc.isConsistentIdGenerator() ? 1 : 0) +
-          (doc.isIdGenerator() ? 1 : 0) +
-          (doc.isStableIdGenerator() ? 1 : 0) +
-          (doc.isMappedIdGenerator() ? 1 : 0);
+          Booleans.countTrue(
+              doc.isConsistentIdGenerator(),
+              doc.isIdGenerator(),
+              doc.isStableIdGenerator(),
+              doc.isMappedIdGenerator());
       if (numGeneratorAnnotations == 0) {
         return;
       } else if (numGeneratorAnnotations > 1) {
@@ -343,7 +339,7 @@ class ReplaceIdGenerators implements CompilerPass {
         }
       }
 
-      Node arg = n.getFirstChild().getNext();
+      Node arg = n.getSecondChild();
       if (arg == null) {
         compiler.report(t.makeError(n, INVALID_GENERATOR_PARAMETER));
       } else if (arg.isString()) {
@@ -411,7 +407,7 @@ class ReplaceIdGenerators implements CompilerPass {
   }
 
   static String getIdForGeneratorNode(boolean consistent, Node n) {
-    Preconditions.checkState(n.isString() || n.isStringKey());
+    Preconditions.checkState(n.isString() || n.isStringKey(), n);
     if (consistent) {
       return n.getString();
     } else {

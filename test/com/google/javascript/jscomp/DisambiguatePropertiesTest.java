@@ -37,7 +37,7 @@ import java.util.TreeSet;
  */
 
 public final class DisambiguatePropertiesTest extends CompilerTestCase {
-  private DisambiguateProperties<?> lastPass;
+  private DisambiguateProperties lastPass;
 
   public DisambiguatePropertiesTest() {
     parseTypeInfo = true;
@@ -46,8 +46,8 @@ public final class DisambiguatePropertiesTest extends CompilerTestCase {
   @Override
   protected void setUp() throws Exception {
     super.setUp();
-    super.enableNormalize(true);
-    super.enableTypeCheck(CheckLevel.WARNING);
+    super.enableNormalize();
+    super.enableTypeCheck();
   }
 
   @Override
@@ -61,8 +61,7 @@ public final class DisambiguatePropertiesTest extends CompilerTestCase {
 
         // This must be created after type checking is run as it depends on
         // any mismatches found during checking.
-        lastPass = DisambiguateProperties.forJSTypeSystem(
-            compiler, propertiesToErrorFor);
+        lastPass = new DisambiguateProperties(compiler, propertiesToErrorFor);
 
         lastPass.process(externs, root);
       }
@@ -596,6 +595,62 @@ public final class DisambiguatePropertiesTest extends CompilerTestCase {
     testSets(js, js, "{}");
   }
 
+  // When objects flow to untyped code, it is the programmer's responsibility to
+  // use them in a type-safe way, otherwise disambiguation will be wrong.
+  public void testUntypedCodeWrongDisambiguation1() {
+    String js = ""
+        + "/** @constructor */\n"
+        + "function Foo() { this.p1 = 0; }\n"
+        + "/** @constructor */\n"
+        + "function Bar() { this.p1 = 1; }\n"
+        + "var arr = [new Foo, new Bar];\n"
+        + "var /** !Foo */ z = arr[1];\n"
+        + "z.p1;\n";
+    String output = ""
+        + "/** @constructor */ function Foo() { this.Foo$p1 = 0; }\n"
+        + "/** @constructor */ function Bar() { this.Bar$p1 = 1; }\n"
+        + "var arr = [new Foo, new Bar];\n"
+        + "var /** !Foo */z = arr[1];\n"
+        + "z.Foo$p1;\n";
+    testSets(js, output, "{p1=[[Bar], [Foo]]}");
+  }
+
+  // When objects flow to untyped code, it is the programmer's responsibility to
+  // use them in a type-safe way, otherwise disambiguation will be wrong.
+  public void testUntypedCodeWrongDisambiguation2() {
+    String js = ""
+        + "/** @constructor */\n"
+        + "function Foo() { this.p1 = 0; }\n"
+        + "/** @constructor */\n"
+        + "function Bar() { this.p1 = 1; }\n"
+        + "function select(cond, x, y) { return cond ? x : y; }\n"
+        + "/**\n"
+        + " * @param {!Foo} x\n"
+        + " * @param {!Bar} y\n"
+        + " * @return {!Foo}\n"
+        + " */\n"
+        + "function f(x, y) {\n"
+        + "  var /** !Foo */ z = select(false, x, y);\n"
+        + "  return z;\n"
+        + "}\n"
+        + "f(new Foo, new Bar).p1;\n";
+    String output = ""
+        + "/** @constructor */ function Foo() { this.Foo$p1 = 0; }\n"
+        + "/** @constructor */ function Bar() { this.Bar$p1 = 1; }\n"
+        + "function select(cond, x, y) { return cond ? x : y; }\n"
+        + "/**\n"
+        + " * @param {!Foo} x\n"
+        + " * @param {!Bar} y\n"
+        + " * @return {!Foo}\n"
+        + " */\n"
+        + "function f(x, y) {\n"
+        + "  var /** !Foo */ z = select(false, x, y);\n"
+        + "  return z;\n"
+        + "}\n"
+        + "f(new Foo, new Bar).Foo$p1;\n";
+    testSets(js, output, "{p1=[[Bar], [Foo]]}");
+  }
+
   public void testEnum() {
     String js = ""
         + "/** @enum {string} */ var En = {\n"
@@ -1044,6 +1099,19 @@ public final class DisambiguatePropertiesTest extends CompilerTestCase {
     testSets(js, "{a=[[Foo.prototype, I.prototype]]}");
   }
 
+  public void testInterfaceOfSuperclass2() {
+    String js = LINE_JOINER.join(
+        "/** @const */ var goog = {};",
+        "goog.abstractMethod = function(var_args) {};",
+        "/** @interface */ function I() {}",
+        "I.prototype.a = function(x) {};",
+        "/** @constructor @implements {I} */ function Foo() {}",
+        "/** @override */ Foo.prototype.a = goog.abstractMethod;",
+        "/** @constructor @extends Foo */ function Bar() {}",
+        "/** @override */ Bar.prototype.a = function(x) {};");
+    testSets(js, "{a=[[Foo.prototype, I.prototype]]}");
+  }
+
   public void testTwoInterfacesWithSomeInheritance() {
     String js = ""
         + "/** @interface */ function I() {};\n"
@@ -1163,6 +1231,26 @@ public final class DisambiguatePropertiesTest extends CompilerTestCase {
         "var /** @const */ SecondAlias = Second;");
 
         testSets(js, js, "{blah=[[Second]]}");
+  }
+
+  public void testConstructorsWithTypeErrorsAreNotDisambiguated() {
+    String js = LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo(){}",
+        "Foo.prototype.alias = function() {};",
+        "",
+        "/** @constructor */",
+        "function Bar(){};",
+        "/** @return {void} */",
+        "Bar.prototype.alias;",
+        "",
+        "Bar = Foo;",
+        "",
+        "(new Bar()).alias();");
+
+    testSets("", js, js, "{}", TypeValidator.TYPE_MISMATCH_WARNING, "assignment\n"
+            + "found   : function (new:Foo): undefined\n"
+            + "required: function (new:Bar): undefined");
   }
 
   public void testStructuralTypingWithDisambiguatePropertyRenaming1() {
@@ -1598,6 +1686,27 @@ public final class DisambiguatePropertiesTest extends CompilerTestCase {
     testSets(js, output, "{}");
   }
 
+  public void testStructuralInterfacesInExterns() {
+    String externs =
+        LINE_JOINER.join(
+            "/** @record */",
+            "var I = function() {};",
+            "/** @return {string} */",
+            "I.prototype.baz = function() {};");
+
+    String js =
+        LINE_JOINER.join(
+            "/** @constructor */",
+            "function Bar() {}",
+            "Bar.prototype.baz = function() { return ''; };",
+            "",
+            "/** @constructor */",
+            "function Foo() {}",
+            "Foo.prototype.baz = function() { return ''; };");
+
+    testSets(externs, js, js, "{}");
+  }
+
   public void testErrorOnProtectedProperty() {
     testError("function addSingletonGetter(foo) { foo.foobar = 'a'; };",
          DisambiguateProperties.Warnings.INVALIDATION);
@@ -1639,8 +1748,7 @@ public final class DisambiguatePropertiesTest extends CompilerTestCase {
 
   public void runFindHighestTypeInChain() {
     // Check that this doesn't go into an infinite loop.
-    DisambiguateProperties.forJSTypeSystem(new Compiler(),
-         new HashMap<String, CheckLevel>())
+    new DisambiguateProperties(new Compiler(), new HashMap<String, CheckLevel>())
         .getTypeWithProperty("no",
             new JSTypeRegistry(new TestErrorReporter(null, null))
             .getNativeType(JSTypeNative.OBJECT_PROTOTYPE));

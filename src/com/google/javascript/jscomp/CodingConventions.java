@@ -46,6 +46,29 @@ public final class CodingConventions {
   }
 
   /**
+   * @param n The last statement of a block to check for an always throws
+   *     function call. Used by CheckMissingReturn.
+   * @param alwaysThrowsFunctionName The name of a function that always throws.
+   * @return {@code true} if n is call to alwaysThrowsFunctionName, otherwise
+   *     {@code false}.
+   */
+  public static boolean defaultIsFunctionCallThatAlwaysThrows(
+      Node n, String alwaysThrowsFunctionName) {
+    if (n.isExprResult()) {
+      if (!n.getFirstChild().isCall()) {
+        return false;
+      }
+    } else if (!n.isCall()) {
+      return false;
+    }
+    if (n.isExprResult()) {
+      n = n.getFirstChild();
+    }
+    // n is a call
+    return n.getFirstChild().matchesQualifiedName(alwaysThrowsFunctionName);
+  }
+
+  /**
    * A convention that wraps another.
    *
    * When you want to support a new library, you should subclass this
@@ -110,6 +133,11 @@ public final class CodingConventions {
     @Override
     public boolean isPrivate(String name) {
       return nextConvention.isPrivate(name);
+    }
+
+    @Override
+    public boolean hasPrivacyConvention() {
+      return nextConvention.hasPrivacyConvention();
     }
 
     @Override
@@ -252,6 +280,11 @@ public final class CodingConventions {
     }
 
     @Override
+    public Cache describeCachingCall(Node node) {
+      return nextConvention.describeCachingCall(node);
+    }
+
+    @Override
     public boolean isPropertyTestFunction(Node call) {
       return nextConvention.isPropertyTestFunction(call);
     }
@@ -334,6 +367,11 @@ public final class CodingConventions {
 
     @Override
     public boolean isPrivate(String name) {
+      return false;
+    }
+
+    @Override
+    public boolean hasPrivacyConvention() {
       return false;
     }
 
@@ -426,7 +464,7 @@ public final class CodingConventions {
 
     @Override
     public boolean isInlinableFunction(Node n) {
-      Preconditions.checkState(n.isFunction());
+      Preconditions.checkState(n.isFunction(), n);
       return true;
     }
 
@@ -470,7 +508,7 @@ public final class CodingConventions {
 
     @Override
     public boolean isPropertyTestFunction(Node call) {
-      return false;
+      return "Array.isArray".equals(call.getFirstChild().getQualifiedName());
     }
 
     @Override
@@ -533,6 +571,11 @@ public final class CodingConventions {
         }
       }
 
+      return null;
+    }
+
+    @Override
+    public Cache describeCachingCall(Node node) {
       return null;
     }
 

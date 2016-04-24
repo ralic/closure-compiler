@@ -36,10 +36,6 @@ import java.util.List;
  * @see CodeGenerator
  */
 public final class CodePrinter {
-  // The number of characters after which we insert a line break in the code
-  static final int DEFAULT_LINE_LENGTH_THRESHOLD = 500;
-
-
   // There are two separate CodeConsumers, one for pretty-printing and
   // another for compact printing.
 
@@ -298,7 +294,8 @@ public final class CodePrinter {
 
     @Override
     void appendBlockStart() {
-      append(" {");
+      maybeInsertSpace();
+      append("{");
       indent++;
     }
 
@@ -364,14 +361,16 @@ public final class CodePrinter {
 
     @Override
     void maybeInsertSpace() {
-      add(" ");
+      if (getLastChar() != ' ') {
+        add(" ");
+      }
     }
 
     /**
      * @return The TRY node for the specified CATCH node.
      */
     private static Node getTryForCatch(Node n) {
-      return n.getParent().getParent();
+      return n.getGrandparent();
     }
 
     /**
@@ -380,7 +379,7 @@ public final class CodePrinter {
      */
     @Override
     boolean breakAfterBlockFor(Node n,  boolean isStatementContext) {
-      Preconditions.checkState(n.isBlock());
+      Preconditions.checkState(n.isBlock(), n);
       Node parent = n.getParent();
       if (parent != null) {
         int type = parent.getType();

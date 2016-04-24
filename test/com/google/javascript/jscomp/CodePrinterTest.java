@@ -27,6 +27,7 @@ import java.util.List;
 
 
 public final class CodePrinterTest extends CodePrinterTestBase {
+  private static final Joiner LINE_JOINER = Joiner.on('\n');
 
   public void testPrint() {
     assertPrint("10 + a + b", "10+a+b");
@@ -102,6 +103,12 @@ public final class CodePrinterTest extends CodePrinterTestBase {
     assertPrint("new A.B().a()", "(new A.B).a()");
     // this case should be fixed
     assertPrint("new A.B('w').a()", "(new A.B(\"w\")).a()");
+
+    // calling new on the result of a call
+    assertPrintSame("new (a())");
+    assertPrint("new (a())()", "new (a())");
+    assertPrintSame("new (a.b())");
+    assertPrint("new (a.b())()", "new (a.b())");
 
     // Operators: make sure we don't convert binary + and unary + into ++
     assertPrint("x + +y", "x+ +y");
@@ -619,7 +626,7 @@ public final class CodePrinterTest extends CodePrinterTestBase {
           void setOptions(CompilerOptions options) {
             options.setPrettyPrint(false);
             options.setLineBreak(true);
-            options.setLineLengthThreshold(CodePrinter.DEFAULT_LINE_LENGTH_THRESHOLD);
+            options.setLineLengthThreshold(CompilerOptions.DEFAULT_LINE_LENGTH_THRESHOLD);
           }
         })));
   }
@@ -949,6 +956,26 @@ public final class CodePrinterTest extends CodePrinterTestBase {
         + "function Foo() {\n}\n");
   }
 
+  public void testNonNullTypes() {
+    assertTypeAnnotations(
+        Joiner.on("\n").join(
+            "/** @constructor */",
+            "function Foo() {}",
+            "/** @return {!Foo} */",
+            "Foo.prototype.f = function() { return new Foo; };"),
+        Joiner.on("\n").join(
+            "/**",
+            " * @constructor",
+            " */",
+            "function Foo() {\n}",
+            "/**",
+            " * @return {!Foo}",
+            " */",
+            "Foo.prototype.f = function() {",
+            "  return new Foo;",
+            "};\n"));
+  }
+
   public void testTypeAnnotationsTypeDef() {
     // TODO(johnlenz): It would be nice if there were some way to preserve
     // typedefs but currently they are resolved into the basic types in the
@@ -1038,6 +1065,18 @@ public final class CodePrinterTest extends CodePrinterTestBase {
         + "a.Foo.prototype.foo = function(foo) {\n  return 3;\n};\n"
         + "/** @type {string} */\n"
         + "a.Foo.prototype.bar = \"\";\n");
+  }
+
+  public void testTypeAnnotationsMemberStub() {
+    // TODO(blickly): Investigate why the method's type isn't preserved.
+    assertTypeAnnotations("/** @interface */ function I(){};"
+        + "/** @return {undefined} @param {number} x */ I.prototype.method;",
+        "/**\n"
+        + " * @interface\n"
+        + " */\n"
+        + "function I() {\n"
+        + "}\n"
+        + "I.prototype.method;\n");
   }
 
   public void testTypeAnnotationsImplements() {
@@ -1143,6 +1182,39 @@ public final class CodePrinterTest extends CodePrinterTestBase {
         "/** @type {(Object|{})} */\ngoog.Enum2 = goog.x ? {} : goog.Enum;\n");
   }
 
+  public void testClosureLibraryTypeAnnotationExamples() {
+    assertTypeAnnotations(
+        LINE_JOINER.join(
+            "/** @param {Object} obj */goog.removeUid = function(obj) {};",
+            "/** @param {Object} obj The object to remove the field from. */",
+            "goog.removeHashCode = goog.removeUid;"),
+        LINE_JOINER.join(
+            "/**",
+            " * @param {(Object|null)} obj",
+            " * @return {undefined}",
+            " */",
+            "goog.removeUid = function(obj) {",
+            "};",
+            "/**",
+            " * @param {(Object|null)} p0",
+            " * @return {undefined}",
+            " */",
+            "goog.removeHashCode = goog.removeUid;",
+            ""));
+  }
+
+  public void testDeprecatedAnnotationIncludesNewline() {
+    String js = LINE_JOINER.join(
+        "/**",
+        " @type {number}",
+        " @deprecated See {@link replacementClass} for more details.",
+        " */",
+        "var x;",
+        "");
+
+    assertPrettyPrint(js, js);
+  }
+
   private void assertPrettyPrint(String js, String expected) {
     assertPrettyPrint(js, expected, new CompilerOptionBuilder() {
       @Override void setOptions(CompilerOptions options) { /* no-op */ }
@@ -1156,8 +1228,9 @@ public final class CodePrinterTest extends CodePrinterTestBase {
           @Override
           void setOptions(CompilerOptions options) {
             options.setPrettyPrint(true);
+            options.setPreserveTypeAnnotations(true);
             options.setLineBreak(false);
-            options.setLineLengthThreshold(CodePrinter.DEFAULT_LINE_LENGTH_THRESHOLD);
+            options.setLineLengthThreshold(CompilerOptions.DEFAULT_LINE_LENGTH_THRESHOLD);
             optionBuilder.setOptions(options);
           }
         })));
@@ -1171,7 +1244,7 @@ public final class CodePrinterTest extends CodePrinterTestBase {
               void setOptions(CompilerOptions options) {
                 options.setPrettyPrint(true);
                 options.setLineBreak(false);
-                options.setLineLengthThreshold(CodePrinter.DEFAULT_LINE_LENGTH_THRESHOLD);
+                options.setLineLengthThreshold(CompilerOptions.DEFAULT_LINE_LENGTH_THRESHOLD);
               }
             }))
             .setOutputTypes(true)
@@ -1423,7 +1496,7 @@ public final class CodePrinterTest extends CodePrinterTestBase {
   public void testIndirectEval() {
     Node n = parse("eval('1');");
     assertPrintNode("eval(\"1\")", n);
-    n.getFirstChild().getFirstChild().getFirstChild().putBooleanProp(
+    n.getFirstFirstChild().getFirstChild().putBooleanProp(
         Node.DIRECT_EVAL, false);
     assertPrintNode("(0,eval)(\"1\")", n);
   }
@@ -1436,7 +1509,7 @@ public final class CodePrinterTest extends CodePrinterTestBase {
   public void testFreeCall2() {
     Node n = parse("foo(a);");
     assertPrintNode("foo(a)", n);
-    Node call =  n.getFirstChild().getFirstChild();
+    Node call =  n.getFirstFirstChild();
     assertTrue(call.isCall());
     call.putBooleanProp(Node.FREE_CALL, true);
     assertPrintNode("foo(a)", n);
@@ -1445,7 +1518,7 @@ public final class CodePrinterTest extends CodePrinterTestBase {
   public void testFreeCall3() {
     Node n = parse("x.foo(a);");
     assertPrintNode("x.foo(a)", n);
-    Node call =  n.getFirstChild().getFirstChild();
+    Node call =  n.getFirstFirstChild();
     assertTrue(call.isCall());
     call.putBooleanProp(Node.FREE_CALL, true);
     assertPrintNode("(0,x.foo)(a)", n);
@@ -1863,12 +1936,11 @@ public final class CodePrinterTest extends CodePrinterTestBase {
 
   public void testPreserveTypeAnnotations() {
     preserveTypeAnnotations = true;
-    assertPrintSame("/**@type {foo} */var bar");
-    assertPrintSame(
-        "function/** void */f(/** string */s,/** number */n){}");
+    assertPrintSame("/** @type {foo} */ var bar");
+    assertPrintSame("function/** void */ f(/** string */ s,/** number */ n){}");
 
     preserveTypeAnnotations = false;
-    assertPrint("/** @type {foo} */var bar;", "var bar");
+    assertPrint("/** @type {foo} */ var bar;", "var bar");
   }
 
   public void testDefaultParameters() {
@@ -1906,6 +1978,18 @@ public final class CodePrinterTest extends CodePrinterTestBase {
     assertPrintSame("var x=class C{}");
   }
 
+  public void testClassComputedProperties() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+
+    assertPrintSame("class C{[x](){}}");
+    assertPrintSame("class C{get [x](){}}");
+    assertPrintSame("class C{set [x](val){}}");
+
+    assertPrintSame("class C{static [x](){}}");
+    assertPrintSame("class C{static get [x](){}}");
+    assertPrintSame("class C{static set [x](val){}}");
+  }
+
   public void testClassPretty() {
     languageMode = LanguageMode.ECMASCRIPT6;
     assertPrettyPrint(
@@ -1931,15 +2015,35 @@ public final class CodePrinterTest extends CodePrinterTestBase {
     assertPrintSame("class C extends D{member(){super.foo()}}");
   }
 
-  public void testGeneratorYield1() {
+  public void testGeneratorYield() {
     languageMode = LanguageMode.ECMASCRIPT6;
     assertPrintSame("function*f(){yield 1}");
+    assertPrintSame("function*f(){yield}");
     assertPrintSame("function*f(){yield 1?0:2}");
     assertPrintSame("function*f(){yield 1,0}");
     assertPrintSame("function*f(){1,yield 0}");
     assertPrintSame("function*f(){yield(a=0)}");
     assertPrintSame("function*f(){a=yield 0}");
     assertPrintSame("function*f(){(yield 1)+(yield 1)}");
+  }
+
+  public void testGeneratorYieldPretty() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrettyPrint(
+        "function *f() {yield 1}",
+        LINE_JOINER.join(
+            "function* f() {",
+            "  yield 1;",
+            "}",
+            ""));
+
+    assertPrettyPrint(
+        "function *f() {yield}",
+        LINE_JOINER.join(
+            "function* f() {",
+            "  yield;",
+            "}",
+            ""));
   }
 
   public void testMemberGeneratorYield1() {
@@ -1960,6 +2064,20 @@ public final class CodePrinterTest extends CodePrinterTestBase {
     assertPrintSame("()=>(a,b)");
     assertPrint("(()=>a),b", "()=>a,b");
     assertPrint("()=>(a=b)", "()=>a=b");
+    assertPrintSame("[1,2].forEach((x)=>y)");
+  }
+
+  public void testPrettyArrowFunction() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrettyPrint("if (x) {var f = ()=>{alert(1); alert(2)}}",
+        LINE_JOINER.join(
+            "if (x) {",
+            "  var f = () => {",
+            "    alert(1);",
+            "    alert(2);",
+            "  }",
+            "}",
+            ""));
   }
 
   public void testDeclarations() {

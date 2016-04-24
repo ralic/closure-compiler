@@ -27,7 +27,7 @@ import com.google.javascript.rhino.Token;
  *
  * @author chadkillingsworth@gmail.com (Chad Killingsworth)
  */
-final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass {
+final class CheckJSDoc extends AbstractPostOrderCallback implements HotSwapCompilerPass {
 
   public static final DiagnosticType MISPLACED_MSG_ANNOTATION =
       DiagnosticType.disabled("JSC_MISPLACED_MSG_ANNOTATION",
@@ -67,6 +67,11 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
   }
 
   @Override
+  public void hotSwapScript(Node scriptRoot, Node originalRoot) {
+    NodeTraversal.traverseEs6(compiler, scriptRoot, this);
+  }
+
+  @Override
   public void visit(NodeTraversal t, Node n, Node parent) {
     JSDocInfo info = n.getJSDocInfo();
     validateTypeAnnotations(n, info);
@@ -77,19 +82,40 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
     validateClassLevelJsDoc(n, info);
     validateArrowFunction(n);
     validateDefaultValue(n, info);
-    validateTempates(n, info);
+    validateTemplates(n, info);
+    validateTypedefs(n, info);
+    validateNoSideEffects(n, info);
   }
 
-  private void validateTempates(Node n, JSDocInfo info) {
+  private void validateTypedefs(Node n, JSDocInfo info) {
+    if (info != null && info.getTypedefType() != null && isClassDecl(n)) {
+      reportMisplaced(n, "typedef", "@typedef does not make sense on a class declaration.");
+    }
+  }
+
+  private void validateTemplates(Node n, JSDocInfo info) {
     if (info != null
         && !info.getTemplateTypeNames().isEmpty()
         && !info.isConstructorOrInterface()
         && !isClassDecl(n)
-        && !(info.containsFunctionDeclaration())) {
-      reportMisplaced(n, "template",
-          "@template is only allowed in class, constructor, interface, function "
-          + "or method declarations");
+        && !info.containsFunctionDeclaration()) {
+      if (isFunctionDecl(n)) {
+        reportMisplaced(n, "template",
+            "The template variable is unused."
+            + " Please remove the @template annotation.");
+      } else {
+        reportMisplaced(n, "template",
+            "@template is only allowed in class, constructor, interface, function "
+            + "or method declarations");
+      }
     }
+  }
+
+  private boolean isFunctionDecl(Node n) {
+    return n.isFunction()
+        || (n.isVar() && n.getFirstFirstChild() != null
+            && n.getFirstFirstChild().isFunction())
+        || n.isAssign() && n.getFirstChild().isQualifiedName() && n.getLastChild().isFunction();
   }
 
   private boolean isClassDecl(Node n) {
@@ -131,8 +157,7 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
   /**
    * Checks that deprecated annotations such as @expose are not present
    */
-  private void validateDeprecatedJsDoc(Node n,
-      JSDocInfo info) {
+  private void validateDeprecatedJsDoc(Node n, JSDocInfo info) {
     if (info != null && info.isExpose()) {
       report(n, ANNOTATION_DEPRECATED, "@expose",
               "Use @nocollapse or @export instead.");
@@ -140,11 +165,10 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
   }
 
   /**
-   * Warns when nocollapse annotations are pressent on nodes
-   * which are not eligible for property collapsing .
+   * Warns when nocollapse annotations are present on nodes
+   * which are not eligible for property collapsing.
    */
-  private void validateNoCollapse(Node n,
-      JSDocInfo info) {
+  private void validateNoCollapse(Node n, JSDocInfo info) {
     if (n.isFromExterns()) {
       if (info != null && info.isNoCollapse()) {
         // @nocollapse has no effect in externs
@@ -260,9 +284,10 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
         // initializers are valid.
         case Token.NAME:
         case Token.DEFAULT_VALUE:
+        case Token.ARRAY_PATTERN:
+        case Token.OBJECT_PATTERN:
           Node parent = n.getParent();
           switch (parent.getType()) {
-            case Token.STRING_KEY:
             case Token.GETTER_DEF:
             case Token.SETTER_DEF:
             case Token.CATCH:
@@ -287,11 +312,14 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
           valid = true;
           break;
         // Property assignments are valid, if at the root of an expression.
-        case Token.ASSIGN:
-          valid =
-              n.getParent().isExprResult()
-                  && (n.getFirstChild().isGetProp() || n.getFirstChild().isGetElem());
+        case Token.ASSIGN: {
+          Node lvalue = n.getFirstChild();
+          valid = n.getParent().isExprResult()
+              && (lvalue.isGetProp()
+                  || lvalue.isGetElem()
+                  || lvalue.matchesQualifiedName("exports"));
           break;
+        }
         case Token.GETPROP:
           valid = n.getParent().isExprResult() && n.isQualifiedName();
           break;
@@ -343,6 +371,15 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
       if (typeNode.getType() != Token.EQUALS) {
         report(typeNode, DEFAULT_PARAM_MUST_BE_MARKED_OPTIONAL);
       }
+    }
+  }
+
+  /**
+   * Check that @nosideeeffects annotations are only present in externs.
+   */
+  private void validateNoSideEffects(Node n, JSDocInfo info) {
+    if (info != null && info.isNoSideEffects() && !n.isFromExterns()) {
+      reportMisplaced(n, "nosideeffects", "@nosideeffects is only supported in externs.");
     }
   }
 }

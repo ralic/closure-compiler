@@ -22,6 +22,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.io.Files;
+import com.google.javascript.jscomp.CodingConvention.Cache;
 import com.google.javascript.jscomp.DefinitionsRemover.Definition;
 import com.google.javascript.jscomp.NodeTraversal.ScopedCallback;
 import com.google.javascript.jscomp.graph.DiGraph;
@@ -142,7 +143,7 @@ class PureFunctionIdentifier implements CompilerPass {
       boolean isPure =
           functionInfo.mayBePure() && !functionInfo.mayHaveSideEffects();
       if (isPure) {
-        sb.append("  " + functionNames.getFunctionName(function) + "\n");
+        sb.append("  ").append(functionNames.getFunctionName(function)).append("\n");
       }
     }
     sb.append("\n");
@@ -169,8 +170,12 @@ class PureFunctionIdentifier implements CompilerPass {
         }
       }
 
-      sb.append(functionNames.getFunctionName(function) + " " + functionInfo + " Calls: "
-          + depFunctionNames + "\n");
+      sb.append(functionNames.getFunctionName(function))
+          .append(" ")
+          .append(functionInfo)
+          .append(" Calls: ")
+          .append(depFunctionNames)
+          .append("\n");
     }
 
     return sb.toString();
@@ -211,7 +216,7 @@ class PureFunctionIdentifier implements CompilerPass {
     } else if (name.isOr() || name.isHook()) {
       Node firstVal;
       if (name.isHook()) {
-        firstVal = name.getFirstChild().getNext();
+        firstVal = name.getSecondChild();
       } else {
         firstVal = name.getFirstChild();
       }
@@ -268,8 +273,10 @@ class PureFunctionIdentifier implements CompilerPass {
 
       for (Node callSite : functionInfo.getCallsInFunctionBody()) {
         Node callee = callSite.getFirstChild();
-        Collection<Definition> defs =
-            getCallableDefinitions(definitionProvider, callee);
+        Cache cacheCall = compiler.getCodingConvention().describeCachingCall(callSite);
+        Collection<Definition> defs = cacheCall != null
+            ? getGoogCacheCallableDefinitions(definitionProvider, cacheCall)
+            : getCallableDefinitions(definitionProvider, callee);
         if (defs == null) {
           // Definition set is not complete or eligible.  Possible
           // causes include:
@@ -308,8 +315,10 @@ class PureFunctionIdentifier implements CompilerPass {
   private void markPureFunctionCalls() {
     for (Node callNode : allFunctionCalls) {
       Node name = callNode.getFirstChild();
-      Collection<Definition> defs =
-          getCallableDefinitions(definitionProvider, name);
+      Cache cacheCall = compiler.getCodingConvention().describeCachingCall(callNode);
+      Collection<Definition> defs = cacheCall != null
+          ? getGoogCacheCallableDefinitions(definitionProvider, cacheCall)
+          : getCallableDefinitions(definitionProvider, name);
       // Default to side effects, non-local results
       Node.SideEffectFlags flags = new Node.SideEffectFlags();
       if (defs == null) {
@@ -370,6 +379,29 @@ class PureFunctionIdentifier implements CompilerPass {
 
       callNode.setSideEffectFlags(flags.valueOf());
     }
+  }
+
+  private Collection<Definition> getGoogCacheCallableDefinitions(
+      DefinitionProvider definitionProvider, Cache cacheCall) {
+    Preconditions.checkNotNull(cacheCall);
+    Preconditions.checkNotNull(definitionProvider);
+
+    List<Definition> defs = new ArrayList<>();
+    Collection<Definition> valueFnDefs =
+        getCallableDefinitions(definitionProvider, cacheCall.valueFn);
+    if (valueFnDefs != null) {
+      defs.addAll(valueFnDefs);
+    }
+
+    if (cacheCall.keyFn != null) {
+      Collection<Definition> keyFnDefs =
+          getCallableDefinitions(definitionProvider, cacheCall.keyFn);
+      if (keyFnDefs != null) {
+        defs.addAll(keyFnDefs);
+      }
+    }
+
+    return defs;
   }
 
   /**
@@ -851,8 +883,8 @@ class PureFunctionIdentifier implements CompilerPass {
           // the "this" is going to be one of its arguments.
           boolean isCallOrApply = isCallOrApply(callSite);
           Node objectNode = isCallOrApply ?
-              callSite.getFirstChild().getNext() :
-              callSite.getFirstChild().getFirstChild();
+              callSite.getSecondChild() :
+              callSite.getFirstFirstChild();
           if (objectNode != null && objectNode.isName()
               && !isCallOrApply) {
             // Exclude ".call" and ".apply" as the value may still be

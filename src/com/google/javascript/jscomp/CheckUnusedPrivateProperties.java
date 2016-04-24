@@ -35,6 +35,9 @@ import java.util.Set;
  * these properties may be indirectly referenced using "for-in" or
  * "Object.keys".
  *
+ * This class is based on RemoveUnusedClassProperties, some effort should
+ * be made to extract the common pieces.
+ *
  * @author johnlenz@google.com (John Lenz)
  */
 class CheckUnusedPrivateProperties
@@ -66,7 +69,7 @@ class CheckUnusedPrivateProperties
     for (Node n : candidates) {
       String propName = getPropName(n);
       if (!used.contains(propName)) {
-        t.report(n, UNUSED_PRIVATE_PROPERTY);
+        t.report(n, UNUSED_PRIVATE_PROPERTY, propName);
       }
     }
   }
@@ -107,7 +110,7 @@ class CheckUnusedPrivateProperties
            used.add(propName);
          } else {
            // Only consider "private" properties.
-           if (isPrivatePropDecl(n)) {
+           if (isCheckablePrivatePropDecl(n)) {
              candidates.add(n);
            }
          }
@@ -116,7 +119,7 @@ class CheckUnusedPrivateProperties
 
        case Token.MEMBER_FUNCTION_DEF: {
          // Only consider "private" methods.
-         if (isPrivatePropDecl(n)) {
+         if (isCheckablePrivatePropDecl(n)) {
            candidates.add(n);
          }
          break;
@@ -155,8 +158,15 @@ class CheckUnusedPrivateProperties
     return (info != null && info.getVisibility() == Visibility.PRIVATE);
   }
 
+  private boolean isCheckablePrivatePropDecl(Node n) {
+    // TODO(tbreisacher): Look for uses of the typedef/interface in type expressions; warn if there
+    // are no uses.
+    JSDocInfo info = NodeUtil.getBestJSDocInfo(n);
+    return isPrivatePropDecl(n) && !info.hasTypedefType() && !info.isInterface();
+  }
+
   private boolean isCandidatePropertyDefinition(Node n) {
-    Preconditions.checkState(n.isGetProp());
+    Preconditions.checkState(n.isGetProp(), n);
     Node target = n.getFirstChild();
     return target.isThis()
         || (isConstructor(target))
@@ -195,7 +205,7 @@ class CheckUnusedPrivateProperties
         // if the property is never otherwise read we can consider it simply
         // a write.
         // However if the assign expression is used as part of a larger
-        // expression, we much consider it a read. For example:
+        // expression, we must consider it a read. For example:
         //    x = (y.a += 1);
         return NodeUtil.isExpressionResultUsed(parent);
       }

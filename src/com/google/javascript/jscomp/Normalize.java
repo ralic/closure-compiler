@@ -281,7 +281,7 @@ class Normalize implements CompilerPass {
       Node externsAndJs = root.getParent();
       Preconditions.checkState(externsAndJs != null);
       Preconditions.checkState(externsAndJs.hasChild(externs));
-      NodeTraversal.traverseRoots(compiler, this, externs, root);
+      NodeTraversal.traverseRootsEs6(compiler, this, externs, root);
     }
 
     private Map<String, Boolean> constantMap = new HashMap<>();
@@ -459,7 +459,7 @@ class Normalize implements CompilerPass {
      * @see https://github.com/google/closure-compiler/pull/429
      */
     static boolean maybeNormalizeFunctionDeclaration(Node n) {
-      Preconditions.checkState(n.isFunction());
+      Preconditions.checkState(n.isFunction(), n);
       if (!NodeUtil.isFunctionExpression(n)
           && !NodeUtil.isHoistedFunctionDeclaration(n)) {
         rewriteFunctionDeclaration(n);
@@ -526,6 +526,10 @@ class Normalize implements CompilerPass {
 
       if (n.isFunction()) {
         moveNamedFunctions(n.getLastChild());
+      }
+
+      if (NodeUtil.isCompoundAssignementOp(n)) {
+        normalizeAssignShorthand(n);
       }
     }
 
@@ -680,6 +684,22 @@ class Normalize implements CompilerPass {
           previous = current;
         }
         current = next;
+      }
+    }
+
+    private void normalizeAssignShorthand(Node shorthand) {
+      if (shorthand.getFirstChild().isName()) {
+        Node name = shorthand.getFirstChild();
+        shorthand.setType(NodeUtil.getOpFromAssignmentOp(shorthand));
+        Node parent = shorthand.getParent();
+        Node insertPoint = IR.empty();
+        parent.replaceChild(shorthand, insertPoint);
+        Node assign = IR.assign(name.cloneNode().useSourceInfoFrom(name), shorthand)
+            .useSourceInfoFrom(shorthand);
+        assign.setJSDocInfo(shorthand.getJSDocInfo());
+        shorthand.setJSDocInfo(null);
+        parent.replaceChild(insertPoint, assign);
+        compiler.reportCodeChange();
       }
     }
 

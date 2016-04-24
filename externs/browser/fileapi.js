@@ -507,17 +507,26 @@ FileReader.prototype.abort = function() {};
  */
 FileReader.prototype.EMPTY = 0;
 
+/** @type {number} */
+FileReader.EMPTY = 0;
+
 /**
  * @see http://www.w3.org/TR/FileAPI/#dfn-loading
  * @type {number}
  */
 FileReader.prototype.LOADING = 1;
 
+/** @type {number} */
+FileReader.LOADING = 1;
+
 /**
  * @see http://www.w3.org/TR/FileAPI/#dfn-done
  * @type {number}
  */
 FileReader.prototype.DONE = 2;
+
+/** @type {number} */
+FileReader.DONE = 2;
 
 /**
  * @see http://www.w3.org/TR/FileAPI/#dfn-readystate
@@ -851,47 +860,12 @@ function revokeObjectURL(url) {};
 Window.prototype.revokeObjectURL = function(url) {};
 
 /**
- * @see http://www.w3.org/TR/FileAPI/#URL-object
- * @constructor
- */
-function DOMURL() {}
-
-/**
- * @see http://www.w3.org/TR/FileAPI/#
- * @constructor
- * @param {string} urlString
- * @param {string=} opt_base
- * @extends {DOMURL}
- */
-function URL(urlString, opt_base) {}
-
-/** @type {string} */
-URL.prototype.protocol;
-
-/**
- * @see http://www.w3.org/TR/FileAPI/#dfn-createObjectURL
- * @param {!File|!Blob|!MediaSource|!MediaStream} obj
- * @return {string}
- */
-URL.createObjectURL = function(obj) {};
-
-/**
- * @see http://www.w3.org/TR/FileAPI/#dfn-revokeObjectURL
- * @param {string} url
- */
-URL.revokeObjectURL = function(url) {};
-
-/**
  * This has been replaced by URL in Chrome since WebKit revision 75739.
  * @constructor
  * @param {string} urlString
  * @param {string=} opt_base
- * @extends {DOMURL}
  */
 function webkitURL(urlString, opt_base) {}
-
-/** @constructor */
-window.webkitURL = webkitURL;
 
 /**
  * @see http://www.w3.org/TR/FileAPI/#dfn-createObjectURL

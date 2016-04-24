@@ -54,9 +54,7 @@ public class Token {
   /**
    * Token types.
    */
-  public final static int
-      ERROR = -1,
-
+  public static final int
       RETURN = 4,
       BITOR = 9,
       BITXOR = 10,
@@ -159,37 +157,37 @@ public class Token {
       // ES6
       ARRAY_PATTERN = 156, // destructuring patterns
       OBJECT_PATTERN = 157,
+      DESTRUCTURING_LHS = 158, // The node inside a var/let/const with a destructuring LHS
 
-      CLASS = 158, // classes
-      CLASS_MEMBERS = 159, // class member container
-      MEMBER_FUNCTION_DEF = 160,
-      SUPER = 161,
+      CLASS = 159, // classes
+      CLASS_MEMBERS = 160, // class member container
+      MEMBER_FUNCTION_DEF = 161,
+      SUPER = 162,
 
-      LET = 162, // block scoped vars
+      LET = 163, // block scoped vars
 
-      FOR_OF = 163, // for-of
+      FOR_OF = 164, // for-of
 
-      YIELD = 164, // generators
+      YIELD = 165, // generators
 
-      IMPORT = 165, // modules
-      IMPORT_SPECS = 166,
-      IMPORT_SPEC = 167,
-      IMPORT_STAR = 168, // "* as name", called NameSpaceImport in the spec.
-      EXPORT = 169,
-      EXPORT_SPECS = 170,
-      EXPORT_SPEC = 171,
-      NAMESPACE = 172,
+      IMPORT = 166, // modules
+      IMPORT_SPECS = 167,
+      IMPORT_SPEC = 168,
+      IMPORT_STAR = 169, // "* as name", called NameSpaceImport in the spec.
+      EXPORT = 170,
+      EXPORT_SPECS = 171,
+      EXPORT_SPEC = 172,
 
-      REST = 173, // "..." in formal parameters, or an array pattern.
-      SPREAD = 174, // "..." in a call expression, or an array literal.
+      REST = 174, // "..." in formal parameters, or an array pattern.
+      SPREAD = 175, // "..." in a call expression, or an array literal.
 
-      COMPUTED_PROP = 175,
+      COMPUTED_PROP = 176,
 
-      TAGGED_TEMPLATELIT = 176, // tagged template literal, e.g. foo`bar`
-      TEMPLATELIT = 177, // template literal
-      TEMPLATELIT_SUB = 178, // template literal substitution
+      TAGGED_TEMPLATELIT = 177, // tagged template literal, e.g. foo`bar`
+      TEMPLATELIT = 178, // template literal
+      TEMPLATELIT_SUB = 179, // template literal substitution
 
-      DEFAULT_VALUE = 179, // Formal parameter or destructuring element with a default value
+      DEFAULT_VALUE = 180, // Formal parameter or destructuring element with a default value
 
       // Used by type declaration ASTs
       STRING_TYPE = 200,
@@ -235,7 +233,8 @@ public class Token {
       MEMBER_VARIABLE_DEF = 319,
       INDEX_SIGNATURE = 320,
       CALL_SIGNATURE = 321,
-      NAMESPACE_ELEMENTS = 322,
+      NAMESPACE = 322,
+      NAMESPACE_ELEMENTS = 323,
 
       // Token Types to use for internal bookkeeping,
       // an AST is invalid while these are present.
@@ -244,8 +243,6 @@ public class Token {
 
   public static String name(int token) {
     switch (token) {
-      case ERROR:
-        return "ERROR";
       case RETURN:
         return "RETURN";
       case BITOR:
@@ -491,6 +488,8 @@ public class Token {
         return "ARRAY_PATTERN";
       case OBJECT_PATTERN:
         return "OBJECT_PATTERN";
+      case DESTRUCTURING_LHS:
+        return "DESTRUCTURING_LHS";
       case CLASS:
         return "CLASS";
       case CLASS_MEMBERS:
@@ -568,250 +567,132 @@ public class Token {
   /** If the arity isn't always the same, this function returns -1 */
   public static int arity(int token) {
     switch (token) {
-      case ERROR:
-        return -1;
       case RETURN:
-        return -1;
-      case BITOR:
-        return 2;
-      case BITXOR:
-        return 2;
-      case BITAND:
-        return 2;
-      case EQ:
-        return 2;
-      case NE:
-        return 2;
-      case LT:
-        return 2;
-      case LE:
-        return 2;
-      case GT:
-        return 2;
-      case GE:
-        return 2;
-      case LSH:
-        return 2;
-      case RSH:
-        return 2;
-      case URSH:
-        return 2;
-      case ADD:
-        return 2;
-      case SUB:
-        return 2;
-      case MUL:
-        return 2;
-      case DIV:
-        return 2;
-      case MOD:
-        return 2;
-      case NOT:
-        return 1;
-      case BITNOT:
-        return 1;
-      case POS:
-        return 1;
-      case NEG:
-        return 1;
       case NEW:
-        return -1;
-      case DELPROP:
-        return 1;
-      case TYPEOF:
-        return 1;
-      case GETPROP:
-        return 2;
-      case GETELEM:
-        return 2;
       case CALL:
+      case STRING_KEY:
+      case REGEXP:
+      case ARRAYLIT:
+      case OBJECTLIT:
+      case TEMPLATELIT:
+      case TRY:
+      case PARAM_LIST:
+      case IF:
+      case SWITCH:
+      case FOR:
+      case BREAK:
+      case CONTINUE:
+      case VAR:
+      case BLOCK:
+      case SCRIPT:
+      case CONST:
+      case DEBUGGER:
+      case ANNOTATION:
+      case PIPE:
+      case STAR:
+      case EOC:
+      case QMARK:
+      case ELLIPSIS:
+      case BANG:
+      case EQUALS:
+      case LB:
+      case LC:
+      case COLON:
+      case YIELD:
+      case REST:
         return -1;
       case NAME:
-        return 0;
       case LABEL_NAME:
-        return 0;
       case NUMBER:
-        return 0;
       case STRING:
-        return 0;
-      case STRING_KEY:
-        return -1;
       case NULL:
-        return 0;
       case THIS:
-        return 0;
       case FALSE:
-        return 0;
       case TRUE:
-        return 0;
-      case SHEQ:
-        return 2;
-      case SHNE:
-        return 2;
-      case REGEXP:
-        return -1;
-      case THROW:
-        return 1;
-      case IN:
-        return 2;
-      case INSTANCEOF:
-        return 2;
-      case ARRAYLIT:
-        return -1;
-      case OBJECTLIT:
-        return -1;
-      case TAGGED_TEMPLATELIT:
-        return 2;
-      case TEMPLATELIT:
-        return -1;
-      case TEMPLATELIT_SUB:
-        return 1;
-      case TRY:
-        return -1;
-      case CLASS:
-        return 3;
-      case MEMBER_FUNCTION_DEF:
-        return 1;
-      case PARAM_LIST:
-        return -1;
-      case DEFAULT_VALUE:
-        return 2;
-      case COMMA:
-        return 2;
-      case ASSIGN:
-        return 2;
-      case ASSIGN_BITOR:
-        return 2;
-      case ASSIGN_BITXOR:
-        return 2;
-      case ASSIGN_BITAND:
-        return 2;
-      case ASSIGN_LSH:
-        return 2;
-      case ASSIGN_RSH:
-        return 2;
-      case ASSIGN_URSH:
-        return 2;
-      case ASSIGN_ADD:
-        return 2;
-      case ASSIGN_SUB:
-        return 2;
-      case ASSIGN_MUL:
-        return 2;
-      case ASSIGN_DIV:
-        return 2;
-      case ASSIGN_MOD:
-        return 2;
-      case HOOK:
-        return 3;
-      case OR:
-        return 2;
-      case AND:
-        return 2;
-      case INC:
-        return 1;
-      case DEC:
-        return 1;
-      case FUNCTION:
-        return 3;
-      case IF:
-        return -1;
-      case SWITCH:
-        return -1;
-      case CASE:
-        return 2;
-      case DEFAULT_CASE:
-        return 1;
-      case WHILE:
-        return 2;
-      case DO:
-        return 2;
-      case FOR:
-        return -1;
-      case FOR_OF:
-        return 3;
-      case BREAK:
-        return -1;
-      case CONTINUE:
-        return -1;
-      case VAR:
-        return -1;
-      case WITH:
-        return 2;
-      case CATCH:
-        return 2;
       case EMPTY:
-        return 0;
-      case BLOCK:
-        return -1;
-      case LABEL:
-        return 2;
-      case EXPR_RESULT:
-        return 1;
-      case SCRIPT:
-        return -1;
-      case GETTER_DEF:
-        return 1;
-      case SETTER_DEF:
-        return 1;
-      case CONST:
-        return -1;
-      case DEBUGGER:
-        return -1;
-      case CAST:
-        return 1;
-      case ANNOTATION:
-        return -1;
-      case PIPE:
-        return -1;
-      case STAR:
-        return -1;
-      case EOC:
-        return -1;
-      case QMARK:
-        return -1;
-      case ELLIPSIS:
-        return -1;
-      case REST:
-        return 0;
-      case SPREAD:
-        return 1;
-      case BANG:
-        return -1;
-      case VOID:
-        return 1;
-      case EQUALS:
-        return -1;
-      case LB:
-        return -1;
-      case LC:
-        return -1;
-      case COLON:
-        return -1;
-      case COMPUTED_PROP:
-        return 2;
-      case IMPORT:
-        return 3;
       case IMPORT_STAR:
-        return 0;
-      case YIELD:
-        return -1;
-      case INTERFACE:
-        return 3;
-      case ENUM:
-        return 2;
-      case NAMESPACE:
-        return 2;
-      case NAMED_TYPE:
-        return 1;
-      case TYPE_ALIAS:
-        return 1;
-      case INDEX_SIGNATURE:
-        return 1;
-      case CALL_SIGNATURE:
-        return 1;
       case MEMBER_VARIABLE_DEF:
         return 0;
+      case NOT:
+      case BITNOT:
+      case POS:
+      case NEG:
+      case DELPROP:
+      case TYPEOF:
+      case THROW:
+      case TEMPLATELIT_SUB:
+      case MEMBER_FUNCTION_DEF:
+      case INC:
+      case DEC:
+      case DEFAULT_CASE:
+      case EXPR_RESULT:
+      case GETTER_DEF:
+      case SETTER_DEF:
+      case CAST:
+      case SPREAD:
+      case VOID:
+      case NAMED_TYPE:
+      case TYPE_ALIAS:
+      case INDEX_SIGNATURE:
+      case CALL_SIGNATURE:
+        return 1;
+      case BITOR:
+      case BITXOR:
+      case BITAND:
+      case EQ:
+      case NE:
+      case LT:
+      case LE:
+      case GT:
+      case GE:
+      case LSH:
+      case RSH:
+      case URSH:
+      case ADD:
+      case SUB:
+      case MUL:
+      case DIV:
+      case MOD:
+      case GETPROP:
+      case GETELEM:
+      case SHEQ:
+      case SHNE:
+      case IN:
+      case INSTANCEOF:
+      case TAGGED_TEMPLATELIT:
+      case DEFAULT_VALUE:
+      case COMMA:
+      case ASSIGN:
+      case ASSIGN_BITOR:
+      case ASSIGN_BITXOR:
+      case ASSIGN_BITAND:
+      case ASSIGN_LSH:
+      case ASSIGN_RSH:
+      case ASSIGN_URSH:
+      case ASSIGN_ADD:
+      case ASSIGN_SUB:
+      case ASSIGN_MUL:
+      case ASSIGN_DIV:
+      case ASSIGN_MOD:
+      case OR:
+      case AND:
+      case CASE:
+      case WHILE:
+      case DO:
+      case WITH:
+      case CATCH:
+      case LABEL:
+      case COMPUTED_PROP:
+      case ENUM:
+      case NAMESPACE:
+        return 2;
+      case CLASS:
+      case HOOK:
+      case FUNCTION:
+      case FOR_OF:
+      case IMPORT:
+      case INTERFACE:
+        return 3;
     }
     throw new IllegalStateException(
         "No arity defined for " + Token.name(token));

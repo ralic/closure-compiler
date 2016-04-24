@@ -143,11 +143,7 @@ public class TemplateTypeMap implements Serializable {
     return getTemplateTypeIndex(key) != -1;
   }
 
-  /**
-   * Returns the JSType value associated with the specified template key. If no
-   * JSType value is associated, returns UNKNOWN_TYPE.
-   */
-  public JSType getTemplateType(TemplateType key) {
+  JSType getUnresolvedOriginalTemplateType(TemplateType key) {
     int index = getTemplateTypeIndex(key);
     return (index == -1) ? registry.getNativeType(JSTypeNative.UNKNOWN_TYPE) :
          templateValues.get(index);
@@ -176,18 +172,15 @@ public class TemplateTypeMap implements Serializable {
     return -1;
   }
 
-  private JSType getResolvedTemplateType(TemplateType key) {
-    int index = getTemplateTypeIndex(key);
+  /**
+   * Returns the JSType value associated with the specified template key. If no
+   * JSType value is associated, returns UNKNOWN_TYPE.
+   */
+  public JSType getResolvedTemplateType(TemplateType key) {
+    TemplateTypeMap resolvedMap = this.addUnknownValues();
+    int index = resolvedMap.getTemplateTypeIndex(key);
     return (index == -1) ? registry.getNativeType(JSTypeNative.UNKNOWN_TYPE) :
-         resolvedTemplateValues.get(index);
-  }
-
-  public JSType getConcreteTypeOfTemplateType(TemplateType key) {
-    JSType result = getTemplateType(key);
-    while (result.isTemplateType()) {
-      result = getTemplateType(result.toMaybeTemplateType());
-    }
-    return result;
+         resolvedMap.resolvedTemplateValues.get(index);
   }
 
   /**
@@ -337,7 +330,7 @@ public class TemplateTypeMap implements Serializable {
   }
 
   boolean hasAnyTemplateTypesInternal() {
-    for (JSType templateValue : templateValues) {
+    for (JSType templateValue : addUnknownValues().resolvedTemplateValues) {
       if (templateValue.hasAnyTemplateTypes()) {
         return true;
       }

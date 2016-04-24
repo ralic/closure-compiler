@@ -16,6 +16,8 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.javascript.jscomp.ProcessEs6Modules.LHS_OF_GOOG_REQUIRE_MUST_BE_CONST;
+
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.rhino.Node;
@@ -32,15 +34,17 @@ public final class ProcessEs6ModulesTest extends CompilerTestCase {
 
   @Override
   public void setUp() {
-    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
-    enableAstValidation(true);
+    // ECMASCRIPT5 to trigger module processing after parsing.
+    setLanguage(LanguageMode.ECMASCRIPT6, LanguageMode.ECMASCRIPT5);
     runTypeCheckAfterProcessing = true;
   }
 
   @Override
   protected CompilerOptions getOptions() {
     CompilerOptions options = super.getOptions();
-    options.setLanguageOut(LanguageMode.ECMASCRIPT5); // Trigger module processing after parsing.
+    // ECMASCRIPT5 to Trigger module processing after parsing.
+    options.setLanguageOut(LanguageMode.ECMASCRIPT5);
+    options.setWarningLevel(DiagnosticGroups.LINT_CHECKS, CheckLevel.WARNING);
     return options;
   }
 
@@ -63,12 +67,13 @@ public final class ProcessEs6ModulesTest extends CompilerTestCase {
     // Shared with ProcessCommonJSModulesTest.
     String fileName = test.getFilename() + ".js";
     ImmutableList<SourceFile> inputs =
-        ImmutableList.of(SourceFile.fromCode("other.js", ""), SourceFile.fromCode(fileName, input));
-    String fileoverview = "/** @fileoverview\n * @suppress {missingProvide|missingRequire}\n */";
+        ImmutableList.of(
+            SourceFile.fromCode("other.js", "goog.provide('module$other');"),
+            SourceFile.fromCode(fileName, input));
     ImmutableList<SourceFile> expecteds =
         ImmutableList.of(
-            SourceFile.fromCode("other.js", ""),
-            SourceFile.fromCode(fileName, fileoverview + expected));
+            SourceFile.fromCode("other.js", "goog.provide('module$other');"),
+            SourceFile.fromCode(fileName, expected));
     test.test(inputs, expecteds);
   }
 
@@ -76,25 +81,45 @@ public final class ProcessEs6ModulesTest extends CompilerTestCase {
       CompilerTestCase test, ImmutableList<SourceFile> inputs, String expected) {
     ImmutableList<SourceFile> expecteds =
         ImmutableList.of(
-            SourceFile.fromCode("other.js", ""),
+            SourceFile.fromCode("other.js", "goog.provide('module$other');"),
             SourceFile.fromCode(test.getFilename() + ".js", expected));
     test.test(inputs, expecteds);
   }
 
   void testModules(String input, String expected) {
-    testModules(this, input, expected);
+    testModules(this, input,
+        "/** @fileoverview\n * @suppress {missingProvide|missingRequire}\n */" + expected);
+  }
+
+  private static void testModules(CompilerTestCase test, String input, DiagnosticType error) {
+    String fileName = test.getFilename() + ".js";
+    ImmutableList<SourceFile> inputs =
+        ImmutableList.of(SourceFile.fromCode("other.js", ""), SourceFile.fromCode(fileName, input));
+    test.test(inputs, null, error);
+  }
+
+  private void testModules(String input, DiagnosticType error) {
+    testModules(this, input, error);
   }
 
   public void testImport() {
     testModules(
         "import name from 'other'; use(name);",
-        LINE_JOINER.join("goog.require('module$other');", "use(module$other.default);"));
+        "goog.require('module$other'); use(module$other.default);");
 
     testModules("import {n as name} from 'other';", "goog.require('module$other');");
 
     testModules(
         "import x, {f as foo, b as bar} from 'other'; use(x);",
-        LINE_JOINER.join("goog.require('module$other');", "use(module$other.default);"));
+        "goog.require('module$other'); use(module$other.default);");
+
+    testModules(
+        "import {default as name} from 'other'; use(name);",
+        "goog.require('module$other'); use(module$other.default);");
+
+    testModules(
+        "import {class as name} from 'other'; use(name);",
+        "goog.require('module$other'); use(module$other.class);");
   }
 
   public void testImport_missing() {
@@ -166,6 +191,20 @@ public final class ProcessEs6ModulesTest extends CompilerTestCase {
             "var b$$module$testcode = 2;",
             "module$testcode.foo = f$$module$testcode;",
             "module$testcode.bar = b$$module$testcode;"));
+
+    testModules(
+        "var f = 1; export {f as default};",
+        LINE_JOINER.join(
+            "goog.provide('module$testcode');",
+            "var f$$module$testcode = 1;",
+            "module$testcode.default = f$$module$testcode;"));
+
+    testModules(
+        "var f = 1; export {f as class};",
+        LINE_JOINER.join(
+            "goog.provide('module$testcode');",
+            "var f$$module$testcode = 1;",
+            "module$testcode.class = f$$module$testcode;"));
   }
 
   public void testExportWithJsDoc() {
@@ -214,11 +253,16 @@ public final class ProcessEs6ModulesTest extends CompilerTestCase {
 
   public void testExportFrom() {
     testModules(
-        "export {name} from 'other';",
+        LINE_JOINER.join(
+            "export {name} from 'other';",
+            "export {default} from 'other';",
+            "export {class} from 'other';"),
         LINE_JOINER.join(
             "goog.provide('module$testcode');",
             "goog.require('module$other');",
-            "module$testcode.name = module$other.name;"));
+            "module$testcode.name = module$other.name;",
+            "module$testcode.default = module$other.default;",
+            "module$testcode.class = module$other.class;"));
 
     testModules(
         "export {a, b as c, d} from 'other';",
@@ -228,6 +272,27 @@ public final class ProcessEs6ModulesTest extends CompilerTestCase {
             "module$testcode.a = module$other.a;",
             "module$testcode.c = module$other.b;",
             "module$testcode.d = module$other.d;"));
+
+    testModules(
+        "export {a as b, b as a} from 'other';",
+        LINE_JOINER.join(
+            "goog.provide('module$testcode');",
+            "goog.require('module$other');",
+            "module$testcode.b = module$other.a;",
+            "module$testcode.a = module$other.b;"));
+
+    testModules(
+        LINE_JOINER.join(
+            "export {default as a} from 'other';",
+            "export {a as a2, default as b} from 'other';",
+            "export {class as switch} from 'other';"),
+        LINE_JOINER.join(
+            "goog.provide('module$testcode');",
+            "goog.require('module$other');",
+            "module$testcode.a = module$other.default;",
+            "module$testcode.a2 = module$other.a;",
+            "module$testcode.b = module$other.default;",
+            "module$testcode.switch = module$other.class;"));
   }
 
   public void testExportDefault() {
@@ -363,6 +428,20 @@ public final class ProcessEs6ModulesTest extends CompilerTestCase {
             "  useBaz(baz) {}",
             "}",
             "/** @const */ module$testcode.Foo = Foo$$module$testcode;"));
+
+    testModules(
+        LINE_JOINER.join(
+            "export class Foo {",
+            "  /** @param {/other.Baz} baz */",
+            "  useBaz(baz) {}",
+            "}"),
+        LINE_JOINER.join(
+            "goog.provide('module$testcode');",
+            "class Foo$$module$testcode {",
+            "  /** @param {module$other.Baz} baz */",
+            "  useBaz(baz) {}",
+            "}",
+            "/** @const */ module$testcode.Foo = Foo$$module$testcode;"));
   }
 
   public void testRenameTypedef() {
@@ -436,35 +515,149 @@ public final class ProcessEs6ModulesTest extends CompilerTestCase {
 
   public void testGoogRequires_rewrite() {
     testModules(
-        "var bar = goog.require('foo.bar'); export var x;",
+        "const bar = goog.require('foo.bar'); export var x;",
         LINE_JOINER.join(
             "goog.provide('module$testcode');",
             "goog.require('foo.bar');",
-            "var bar$$module$testcode = foo.bar;",
+            "const bar$$module$testcode = foo.bar;",
             "var x$$module$testcode;",
             "module$testcode.x = x$$module$testcode"));
+
+    testModules(
+        "export var x; const bar = goog.require('foo.bar');",
+        LINE_JOINER.join(
+            "goog.provide('module$testcode');",
+            "var x$$module$testcode;",
+            "goog.require('foo.bar');",
+            "const bar$$module$testcode = foo.bar;",
+            "module$testcode.x = x$$module$testcode"));
+
+    testModules(
+        "import * as s from 'other'; const bar = goog.require('foo.bar');",
+        LINE_JOINER.join(
+            "goog.require('module$other');",
+            "goog.require('foo.bar');",
+            "const bar$$module$testcode = foo.bar;"));
+
+    testModules(
+        "const bar = goog.require('foo.bar'); import * as s from 'other';",
+        LINE_JOINER.join(
+            "goog.require('module$other');",
+            "goog.require('foo.bar');",
+            "const bar$$module$testcode = foo.bar;"));
+  }
+
+  public void testGoogRequires_nonConst() {
+    testModules(
+        "var bar = goog.require('foo.bar'); export var x;",
+        LHS_OF_GOOG_REQUIRE_MUST_BE_CONST);
 
     testModules(
         "export var x; var bar = goog.require('foo.bar');",
-        LINE_JOINER.join(
-            "goog.provide('module$testcode');",
-            "var x$$module$testcode;",
-            "goog.require('foo.bar');",
-            "var bar$$module$testcode = foo.bar;",
-            "module$testcode.x = x$$module$testcode"));
+        LHS_OF_GOOG_REQUIRE_MUST_BE_CONST);
 
     testModules(
         "import * as s from 'other'; var bar = goog.require('foo.bar');",
-        LINE_JOINER.join(
-            "goog.require('module$other');",
-            "goog.require('foo.bar');",
-            "var bar$$module$testcode = foo.bar;"));
+        LHS_OF_GOOG_REQUIRE_MUST_BE_CONST);
 
     testModules(
         "var bar = goog.require('foo.bar'); import * as s from 'other';",
+        LHS_OF_GOOG_REQUIRE_MUST_BE_CONST);
+  }
+
+  public void testGoogRequiresDestructuring_rewrite() {
+    testModules(
+        LINE_JOINER.join(
+            "import * as s from 'other';",
+            "const {foo, bar} = goog.require('some.name.space');",
+            "use(foo, bar);"),
         LINE_JOINER.join(
             "goog.require('module$other');",
-            "goog.require('foo.bar');",
-            "var bar$$module$testcode = foo.bar;"));
+            "goog.require('some.name.space');",
+            "const {",
+            "  foo: foo$$module$testcode,",
+            "  bar: bar$$module$testcode,",
+            "} = some.name.space;",
+            "use(foo$$module$testcode, bar$$module$testcode);"));
+
+    testModules(
+        LINE_JOINER.join(
+            "import * as s from 'other';",
+            "var {foo, bar} = goog.require('some.name.space');",
+            "use(foo, bar);"),
+        LHS_OF_GOOG_REQUIRE_MUST_BE_CONST);
+
+    testModules(
+        LINE_JOINER.join(
+            "import * as s from 'other';",
+            "let {foo, bar} = goog.require('some.name.space');",
+            "use(foo, bar);"),
+        LHS_OF_GOOG_REQUIRE_MUST_BE_CONST);
+  }
+
+  public void testNamespaceImports() {
+    testModules(
+        LINE_JOINER.join(
+            "import Foo from 'goog:other.Foo';",
+            "use(Foo);"),
+        LINE_JOINER.join(
+            "goog.require('other.Foo');",
+            "use(other.Foo)"));
+    testModules(
+        LINE_JOINER.join(
+            "import {x, y} from 'goog:other.Foo';",
+            "use(x);",
+            "use(y);"),
+        LINE_JOINER.join(
+            "goog.require('other.Foo');",
+            "use(other.Foo.x); use(other.Foo.y);"));
+    testModules(
+        LINE_JOINER.join(
+            "import Foo from 'goog:other.Foo';",
+            "/** @type {Foo} */ var foo = new Foo();"),
+        LINE_JOINER.join(
+            "goog.require('other.Foo');",
+            "/** @type {other.Foo} */",
+            "var foo$$module$testcode = new other.Foo();"));
+
+    testModules("import * as Foo from 'goog:other.Foo';",
+        ProcessEs6Modules.NAMESPACE_IMPORT_CANNOT_USE_STAR);
+  }
+
+  public void testObjectDestructuringAndObjLitShorthand() {
+    testModules(
+        LINE_JOINER.join(
+            "import {f} from 'other';",
+            "const foo = 1;",
+            "const {a, b} = f({foo});",
+            "use(a, b);"),
+        LINE_JOINER.join(
+            "goog.require('module$other');",
+            "const foo$$module$testcode = 1;",
+            "const {",
+            "  a: a$$module$testcode,",
+            "  b: b$$module$testcode,",
+            "} = module$other.f({foo: foo$$module$testcode});",
+            "use(a$$module$testcode, b$$module$testcode);"));
+  }
+
+  public void testImportWithoutReferences() {
+    testModules("import 'other';", "goog.require('module$other');");
+  }
+
+  public void testUselessUseStrict() {
+    setExpectParseWarningsThisTest();
+    testModules(LINE_JOINER.join(
+        "'use strict';",
+        "export default undefined;"),
+        LINE_JOINER.join(
+        "'use strict';",
+        "export default undefined;"));
+  }
+
+  public void testUseStrict_noWarning() {
+    testSame(LINE_JOINER.join(
+        "'use strict';",
+        "var x;"));
   }
 }

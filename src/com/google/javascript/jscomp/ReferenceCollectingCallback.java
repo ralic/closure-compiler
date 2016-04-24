@@ -159,8 +159,7 @@ class ReferenceCollectingCallback implements ScopedCallback,
    */
   @Override
   public void visit(NodeTraversal t, Node n, Node parent) {
-    if (n.isName() || n.isRest()
-        || (n.isStringKey() && parent.isObjectPattern() && !n.hasChildren())) {
+    if (n.isName() || (n.isStringKey() && !n.hasChildren())) {
       Var v;
       if (n.getString().equals("arguments")) {
         v = t.getScope().getArgumentsVar();
@@ -301,6 +300,7 @@ class ReferenceCollectingCallback implements ScopedCallback,
         case Token.TRY:
         case Token.WHILE:
         case Token.WITH:
+        case Token.CLASS:
           // NOTE: TRY has up to 3 child blocks:
           // TRY
           //   BLOCK
@@ -315,6 +315,7 @@ class ReferenceCollectingCallback implements ScopedCallback,
         case Token.HOOK:
         case Token.IF:
         case Token.OR:
+        case Token.SWITCH:
           // The first child of a conditional is not a boundary,
           // but all the rest of the children are.
           return n != parent.getFirstChild();
@@ -530,8 +531,8 @@ class ReferenceCollectingCallback implements ScopedCallback,
     }
 
     /**
-     * @return The one and only assignment. Returns if there are 0 or 2+
-     *    assignments.
+     * @return The one and only assignment. Returns null if the number of assignments is not
+     *     exactly one.
      */
     private Reference getOneAndOnlyAssignment() {
       Reference assignment = null;
@@ -576,7 +577,7 @@ class ReferenceCollectingCallback implements ScopedCallback,
 
     private static final Set<Integer> DECLARATION_PARENTS =
         ImmutableSet.of(Token.VAR, Token.LET, Token.CONST, Token.PARAM_LIST,
-            Token.FUNCTION, Token.CLASS, Token.CATCH);
+            Token.FUNCTION, Token.CLASS, Token.CATCH, Token.REST);
 
     private final Node nameNode;
     private final BasicBlock basicBlock;
@@ -657,18 +658,14 @@ class ReferenceCollectingCallback implements ScopedCallback,
         return false;
       }
 
-      if (NodeUtil.isNameDeclaration(parent.getParent())
-          && node == parent.getLastChild()) {
-        // Unless it is something like "for (var/let/const a of x){}",
-        // this is the RHS of a var/let/const and thus not a declaration.
-        if (parent.getParent().getParent() == null
-            || !parent.getParent().getParent().isForOf()) {
-          return false;
-        }
+      if (NodeUtil.isNameDeclaration(parent.getParent()) && node == parent.getSecondChild()) {
+        // This is the RHS of a var/let/const and thus not a declaration.
+        return false;
       }
 
       // Special cases for destructuring patterns.
-      if (parent.isDestructuringPattern()
+      if (parent.isDestructuringLhs()
+          || parent.isDestructuringPattern()
           || (parent.isStringKey() && parent.getParent().isObjectPattern())
           || (parent.isComputedProp() && parent.getParent().isObjectPattern()
               && node == parent.getLastChild())
@@ -715,9 +712,7 @@ class ReferenceCollectingCallback implements ScopedCallback,
     * return the assigned value, otherwise null.
     */
     Node getAssignedValue() {
-      Node parent = getParent();
-      return (parent.isFunction())
-          ? parent : NodeUtil.getAssignedValue(nameNode);
+      return NodeUtil.getRValueOfLValue(nameNode);
     }
 
     BasicBlock getBasicBlock() {
@@ -747,6 +742,11 @@ class ReferenceCollectingCallback implements ScopedCallback,
           && parent.getFirstChild() == nameNode;
     }
 
+    /**
+     * Returns whether the name node for this reference is an lvalue.
+     * TODO(tbreisacher): This method disagrees with NodeUtil#isLValue for
+     * "var x;" and "let x;". Consider updating it to match.
+     */
     boolean isLvalue() {
       Node parent = getParent();
       int parentType = parent.getType();

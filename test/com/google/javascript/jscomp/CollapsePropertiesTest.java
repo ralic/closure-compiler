@@ -39,12 +39,12 @@ public final class CollapsePropertiesTest extends CompilerTestCase {
   }
 
   @Override public CompilerPass getProcessor(Compiler compiler) {
-    return new CollapseProperties(compiler, true);
+    return new CollapseProperties(compiler);
   }
 
   @Override
   public void setUp() {
-    enableNormalize(true);
+    enableNormalize();
     compareJsDoc = false;
   }
 
@@ -1430,6 +1430,7 @@ public final class CollapsePropertiesTest extends CompilerTestCase {
     testSame("var x = 10; function f() { var y = x; x+=1; alert(y)} ");
     test("var x = {}; x.x = 10; function f() {var y=x.x; x.x++; alert(y)}",
          "var x$x = 10; function f() {var y=x$x; x$x++; alert(y)}");
+    disableNormalize();
     test("var x = {}; x.x = 10; function f() {var y=x.x; x.x+=1; alert(y)}",
          "var x$x = 10; function f() {var y=x$x; x$x+=1; alert(y)}");
   }
@@ -2251,6 +2252,16 @@ public final class CollapsePropertiesTest extends CompilerTestCase {
         + "var objlit$prop = Foo;");
   }
 
+  public void testNoCollapseExportedNode() {
+    test(
+        "var x = {}; x.y = {}; var dontExportMe = x.y; use(dontExportMe);",
+        "var x$y = {}; var dontExportMe = null; use(x$y);");
+
+    test(
+        "var x = {}; x.y = {}; var _exportMe = x.y;",
+        "var x$y = {}; var _exportMe = x$y;");
+  }
+
   public void testDontCrashCtorAliasWithEnum() {
     test(
         "var ns = {};\n"
@@ -2276,5 +2287,31 @@ public final class CollapsePropertiesTest extends CompilerTestCase {
         + "    })();\n"
         + "}",
         null);
+  }
+
+  public void testCollapsedNameAlreadyTaken() {
+    test(
+        LINE_JOINER.join(
+            "/** @constructor */ function Funny$Name(){};",
+            "function Funny(){};",
+            "Funny.Name = 5;",
+            "var x = new Funny$Name();"),
+        LINE_JOINER.join(
+            "/** @constructor */ function Funny$Name(){};",
+            "function Funny(){};",
+            "var Funny$Name$1 = 5;",
+            "var x = new Funny$Name();"));
+
+    test("var ns$x = 0; var ns$x$0 = 1; var ns = {}; ns.x = 8;",
+         "var ns$x = 0; var ns$x$0 = 1; var ns$x$1 = 8;");
+
+    test("var ns$x = 0; var ns$x$0 = 1; var ns$x$1 = 2; var ns = {}; ns.x = 8;",
+         "var ns$x = 0; var ns$x$0 = 1; var ns$x$1 = 2; var ns$x$2 = 8;");
+
+    test("var ns$x = {}; ns$x.y = 2; var ns = {}; ns.x = {}; ns.x.y = 8;",
+         "var ns$x$y = 2; var ns$x$1$y = 8;");
+
+    test("var ns$x = {}; ns$x.y = 1; var ns = {}; ns.x$ = {}; ns.x$.y = 2; ns.x = {}; ns.x.y = 3;",
+         "var ns$x$y = 1; var ns$x$0$y = 2; var ns$x$1$y = 3;");
   }
 }

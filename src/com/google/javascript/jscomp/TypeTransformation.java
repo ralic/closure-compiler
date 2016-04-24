@@ -37,7 +37,7 @@ import com.google.javascript.rhino.jstype.TemplatizedType;
 import com.google.javascript.rhino.jstype.UnionType;
 
 import java.util.Collection;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -236,7 +236,7 @@ class TypeTransformation {
 
   private String getFunctionParameter(Node n, int i) {
     Preconditions.checkArgument(n.isFunction(), "Expected a function node, found %s", n);
-    return n.getChildAtIndex(1).getChildAtIndex(i).getString();
+    return n.getSecondChild().getChildAtIndex(i).getString();
   }
 
   private Node getFunctionBody(Node n) {
@@ -271,7 +271,7 @@ class TypeTransformation {
   private Node getComputedPropValue(Node n) {
     Preconditions.checkArgument(
         n.isComputedProp(), "Expected a computed property node, found %s", n);
-    return n.getChildAtIndex(1);
+    return n.getSecondChild();
   }
 
   private String getComputedPropName(Node n) {
@@ -748,7 +748,7 @@ class TypeTransformation {
    * is transformed into {r:{s:string, n:number}, a:boolean}
    */
   private JSType joinRecordTypes(ImmutableList<RecordType> recTypes) {
-    Map<String, JSType> props = new HashMap<>();
+    Map<String, JSType> props = new LinkedHashMap<>();
     for (int i = 0; i < recTypes.size(); i++) {
       addNewPropsFromRecordType(props, recTypes.get(i));
     }
@@ -793,7 +793,7 @@ class TypeTransformation {
 
     // Compute the new properties using the map function
     Node mapFnBody = getFunctionBody(mapFunction);
-    Map<String, JSType> newProps = new HashMap<>();
+    Map<String, JSType> newProps = new LinkedHashMap<>();
     for (String propName : ownPropsNames) {
       // The value of the current property
       JSType propValue = recType.getSlot(propName).getType();
